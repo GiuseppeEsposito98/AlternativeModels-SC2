@@ -50,6 +50,43 @@ def check_if_updatable(model):
     return isinstance(model, UpdatableBackbone)
 
 
+class FeatureExtractionBackboneVGG(UpdatableBackbone):
+    # Referred to the IntermediateLayerGetter implementation at https://github.com/pytorch/vision/blob/main/torchvision/models/_utils.py
+    def __init__(self, model, return_layer_dict, analyzer_configs, analyzes_after_compress=False,
+                 analyzable_layer_key=None):
+        if not set(return_layer_dict).issubset([name for name, _ in model.named_children()]):
+            raise ValueError('return_layer_dict are not present in model')
+
+        super().__init__(analyzer_configs)
+        org_return_layer_dict = return_layer_dict
+        return_layer_dict = {str(k): str(v) for k, v in return_layer_dict.items()}
+        layer_dict = OrderedDict()
+        for name, module in model.named_children():
+            layer_dict[name] = module
+            if name in return_layer_dict:
+                return_layer_dict.pop(name)
+            # Once all the return layers are extracted, the remaining layers are no longer used, thus pruned
+            if len(return_layer_dict) == 0:
+                break
+
+        for key, module in layer_dict.items():
+            self.add_module(key, module)
+
+        self.return_layer_dict = org_return_layer_dict
+        self.analyzable_layer_key = analyzable_layer_key
+        self.analyzes_after_compress = analyzes_after_compress
+
+    def forward(self, x):
+        for module_key, module in self.named_children():
+            if module_key == self.analyzable_layer_key and self.bottleneck_updated and not self.training:
+                x = module.encode(x)
+                if self.analyzes_after_compress:
+                    self.analyze(x)
+                x = module.decode(**x)
+            else:
+                x = module(x)
+        return x
+
 class FeatureExtractionBackbone(UpdatableBackbone):
     # Referred to the IntermediateLayerGetter implementation at https://github.com/pytorch/vision/blob/main/torchvision/models/_utils.py
     def __init__(self, model, return_layer_dict, analyzer_configs, analyzes_after_compress=False,
@@ -113,6 +150,7 @@ class FeatureExtractionBackbone(UpdatableBackbone):
         if self.analyzable_layer_key is None:
             return None
         return self._modules[self.analyzable_layer_key] if self.check_if_updatable() else None
+    
 
 
 class SplittableResNet(UpdatableBackbone):
@@ -199,7 +237,6 @@ class SplittableVGG(UpdatableBackbone):
         self.features = torch.nn.ModuleDict(
             modules
         )
-        logger.info(f'features: {self.features}')
         self.avgpool = None if skips_avgpool \
             else vgg_model.global_pool if hasattr(vgg_model, 'global_pool') else vgg_model.avgpool
         self.fc = None if skips_fc else vgg_model.fc
@@ -207,10 +244,10 @@ class SplittableVGG(UpdatableBackbone):
         self.inplanes = 2048
 
     def forward(self, x):
-        logger.info('************************************')
+        # logger.info('************************************')
         if self.pre_transform is not None:
             x = self.pre_transform(x)
-        logger.info(f'x.shape: {x.shape}')
+        # logger.info(f'x.shape: {x.shape}')
 
         if self.bottleneck_updated and not self.training:
             x = self.bottleneck_layer.encode(x)

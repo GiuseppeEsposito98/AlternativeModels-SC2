@@ -138,7 +138,7 @@ class Basessd(SSD, UpdatableDetectionModel):
             analysis_config = dict()
 
         UpdatableDetectionModel.__init__(self, analysis_config.get('analyzer_configs', list()))
-        SSD.__init__(self, ssd_model.backbone, ssd_model.anchor_generator, (224,224), num_classes=91, head=ssd_model.head)
+        SSD.__init__(self, ssd_model.backbone, ssd_model.anchor_generator, (300,300), num_classes=91, head=ssd_model.head)
 
     def update(self, **kwargs):
         if not check_if_updatable(self.backbone.features.body):
@@ -210,7 +210,7 @@ def create_ssd(backbone, extra_blocks=None, return_layer_dict=None, in_channels_
                                  analyzable_layer_key=analyzable_layer_key, **analysis_config)
     ref_model.backbone.features = backbone_
     
-    # return SSD(backbone_, anchor_generator=anchor_generator, size=(224,224), num_classes=num_classes, **kwargs)
+    # return SSD(backbone_, anchor_generator=anchor_generator, size=(300,300), num_classes=num_classes, **kwargs)
     return ref_model
 
 
@@ -237,6 +237,7 @@ def ssd_model(backbone_config, pretrained=True, pretrained_backbone_name=None, p
 
     if analysis_config is None:
         analysis_config = dict()
+
     backbone_with_seq = load_classification_model(backbone_config, torch.device('cpu'), False, strict=False)
     ssd_model_ = create_ssd(backbone_with_seq, num_classes=num_classes, **backbone_kwargs, **kwargs)
     model = Basessd(ssd_model_, analysis_config=analysis_config)
@@ -256,8 +257,6 @@ class ExtractorWrapper(torch.nn.Module):
         self.idx_lst = list()
         self.redesign_model(model)
         self.layer18.ceil_mode=True
-        # for layer in self.features_dict.values():
-        #     logger.info(layer.state_dict())
     
     def redesign_model(self, model):
         for idx, module in model.named_children():

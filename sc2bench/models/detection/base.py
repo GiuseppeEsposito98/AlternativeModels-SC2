@@ -5,7 +5,7 @@ from torch import nn, Tensor
 from torchdistill.common.constant import def_logger
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool, ExtraFPNBlock
 
-from ..backbone import FeatureExtractionBackbone
+from ..backbone import FeatureExtractionBackbone, FeatureExtractionBackboneVGG
 from ...analysis import AnalyzableModule
 
 logger = def_logger.getChild(__name__)
@@ -93,19 +93,15 @@ class UpdatableBackbone(UpdatableDetectionModel):
 
         if analyzer_configs is None:
             analyzer_configs = list()
-        logger.info(backbone)
-        self.body = FeatureExtractionBackbone(backbone, return_layer_dict=return_layer_dict,
+        self.body = FeatureExtractionBackboneVGG(backbone, return_layer_dict=return_layer_dict,
                                               analyzer_configs=analyzer_configs,
                                               analyzes_after_compress=analyzes_after_compress,
                                               analyzable_layer_key=analyzable_layer_key)
         self.out_channels = out_channels
 
     def forward(self, x: Tensor) -> Dict[str, Tensor]:
-        new_lst=list()
         x = self.body(x)
-        for patch in x.values():
-            new_lst.append(patch.tolist())
-        return torch.squeeze(torch.Tensor(new_lst).to('cuda'))
+        return x
 
     def check_if_updatable(self):
         if self.analyzable_layer_key is None or self.analyzable_layer_key not in self._modules:

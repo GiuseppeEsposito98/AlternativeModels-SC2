@@ -37,7 +37,6 @@ def register_layer_func(func):
     LAYER_FUNC_DICT[func.__name__] = func
     return func
 
-
 class SimpleBottleneck(nn.Module):
     """
     Simple encoder-decoder layer to treat encoder's output as bottleneck
@@ -70,6 +69,64 @@ class SimpleBottleneck(nn.Module):
 
     def update(self):
         logger.info('This module has no updatable parameters for entropy coding')
+
+
+# class SimpleBottleneck(nn.Module):
+#     """
+#     Simple encoder-decoder layer to treat encoder's output as bottleneck
+#     """
+#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+#         super().__init__()
+#         self.encoder = encoder
+#         self.decoder = decoder
+#         self.compressor = compressor
+#         self.decompressor = decompressor
+#         self.max1 = list()
+#         self.max3 = list()
+#         self.max6 = list()
+#         self.max8 = list()
+#         self.max12 = list()
+#         self.max14 = list()
+#         self.max16 = list()
+#         self.max19 = list()
+
+#     def encode(self, x):
+#         for idx in range(1,len(list(self.encoder.children()))+1):
+#             if idx in [1,3,6, 8, 12]:
+#                 x = list(self.encoder.children())[idx-1](x)
+#                 # logger.info(torch.max(x).item())
+#                 exec(f'self.max{idx}.append(torch.max(x).item())')
+#             else: 
+#                 x = list(self.encoder.children())[idx-1](x)
+
+#         # z = self.encoder(x)
+#         if self.compressor is not None:
+#             x = self.compressor(x)
+#         return {'z': x}
+
+#     def decode(self, z):
+#         if self.decompressor is not None:
+#             z = self.decompressor(z)
+
+#         for idx in range(1,len(list(self.decoder.children()))+1):
+#             if idx in [1,3,6]:
+#                 z = list(self.decoder.children())[idx-1](z)
+#                 exec(f'self.max{idx+13}.append(torch.max(z).item())')
+#             else: 
+#                 z = list(self.decoder.children())[idx-1](z)
+#             # z = self.decoder(z)
+#         return z
+
+#     def forward(self, x):
+#         if not self.training:
+#             encoded_obj = self.encode(x)
+#             decoded_obj = self.decode(**encoded_obj)
+#             return decoded_obj
+#         z = self.encoder(x)
+#         return self.decoder(z)
+
+#     def update(self):
+#         logger.info('This module has no updatable parameters for entropy coding')
 
 
 @register_layer_func
@@ -135,17 +192,17 @@ def compression_vgg_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_
 
         nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
         nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.BatchNorm2d(bottleneck_channel),
         nn.ReLU(inplace=True),
 
-        nn.Conv2d(bottleneck_channel, 256, kernel_size=(2, 2), stride=(1, 1), padding=(1, 1)),
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.ReLU(inplace=True),
 
-        nn.Conv2d(256, 256, kernel_size=(2, 2), stride=(1, 1), padding=(1, 1)),
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.ReLU(inplace=True),
 
         nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
-        nn.Conv2d(256, 512, kernel_size=(2, 2), stride=(1, 1), padding=(1, 1)),
-        nn.Upsample(size=(38,38), mode='bilinear'),
+        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.ReLU(inplace=True)
         
     ]
@@ -154,6 +211,192 @@ def compression_vgg_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_
     compressor_transform = build_transform(compressor_transform_params)
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+@register_layer_func
+def layer_swap_vgg(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    """
+    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
+    """
+    modules = [
+        
+        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        
+        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.BatchNorm2d(128),
+        nn.ReLU(inplace=True),
+
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
+        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True)
+        
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+## try stride = 2
+@register_layer_func
+def compression_vgg_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    """
+    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
+    """
+    modules = [
+        
+        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=5,inplace=True),
+        
+        
+        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=5, inplace=True),
+        
+        
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=2, inplace=True),
+        
+        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=2, inplace=True),
+
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.BatchNorm2d(bottleneck_channel),
+        nn.Hardtanh(min_val=0, max_val=15, inplace=True),
+
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=15, inplace=True),
+
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=20, inplace=True),
+
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
+        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=439, inplace=True)
+        
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+@register_layer_func
+def compression_vgg_wo_maxpool(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    """
+    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
+    """
+    modules = [
+        
+        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        
+        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        # learning pooling
+        # nn.Conv2d(64, 64, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
+        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        # learning pooling
+        # nn.Conv2d(128, 128, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
+        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+        nn.BatchNorm2d(bottleneck_channel),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        #learning pooling
+        # nn.Conv2d(256, 256, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=1),
+        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+        nn.ReLU(inplace=True)
+        
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+@register_layer_func
+def fusion_vgg_compression(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    """
+    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
+    """
+    modules = [
+        
+        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=1025,inplace=True),
+        
+        
+        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=4627, inplace=True),
+        
+        # learning pooling
+        nn.Conv2d(64, 64, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
+        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=8296, inplace=True),
+        
+        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.BatchNorm2d(128),
+        nn.Hardtanh(min_val=0, max_val=9345, inplace=True),
+
+        # learning pooling
+        nn.Conv2d(128, 128, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
+        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=7014, inplace=True),
+
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=5572, inplace=True),
+
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=4494, inplace=True),
+
+        #learning pooling
+        nn.Conv2d(256, 256, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=1),
+        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.Hardtanh(min_val=0, max_val=3149, inplace=True)
+        
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+
 
 
 @register_layer_class
@@ -507,3 +750,5 @@ def get_layer(cls_or_func_name, **kwargs):
     elif cls_or_func_name in LAYER_FUNC_DICT:
         return LAYER_FUNC_DICT[cls_or_func_name](**kwargs)
     return None
+
+ 
