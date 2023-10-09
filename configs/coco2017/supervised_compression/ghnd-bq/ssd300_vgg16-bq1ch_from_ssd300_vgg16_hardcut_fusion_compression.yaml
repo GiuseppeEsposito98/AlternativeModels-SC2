@@ -1,53 +1,20 @@
 datasets:
-  pascal_voc:
-    name: &dataset_name 'pascal_voc2012'
-    type: 'VOCDetection'
-    root: &root_dir '~/dataset'
+  coco2017:
+    name: &dataset_name 'coco2017'
+    type: 'cocodetect'
+    root: &root_dir !join ['~/dataset/', *dataset_name]
     splits:
       train:
-        dataset_id: &pascal_train !join [*dataset_name, '/train']
-        params:
-          root: *root_dir
-          image_set: 'train'
-          year: '2012'
-          download: False
-          transforms_compose_cls: 'CustomCompose'
-          transforms_params:
-            - type: 'CustomRandomResize'
-              params:
-                min_size: 256
-                max_size: 1026
-            - type: 'CustomRandomHorizontalFlip'
-              params:
-                p: 0.5
-            - type: 'CustomRandomCrop'
-              params:
-                size: 513
-            - type: 'CustomToTensor'
-              params:
-            - &normalize
-              type: 'CustomNormalize'
-              params:
-                mean: [0.485, 0.456, 0.406]
-                std: [0.229, 0.224, 0.225]
+        dataset_id: &coco_train !join [*dataset_name, '/train']
+        images: !join [*root_dir, '/train2017']
+        annotations: !join [*root_dir, '/annotations/instances_train2017.json']
+        annotated_only: True
+        random_horizontal_flip: 0.5
       val:
-        dataset_id: &pascal_val !join [*dataset_name, '/val']
-        params:
-          root: *root_dir
-          image_set: 'val'
-          year: '2012'
-          download: False
-          transforms_compose_cls: 'CustomCompose'
-          transforms_params: &val_transform
-            - type: 'CustomRandomResize'
-              params:
-                min_size: 513
-                max_size: 513
-            - type: 'CustomToTensor'
-              params:
-                converts_sample: True
-                converts_target: True
-            - *normalize
+        dataset_id: &coco_val !join [*dataset_name, '/val']
+        images: !join [*root_dir, '/val2017']
+        annotations: !join [*root_dir, '/annotations/instances_val2017.json']
+        annotated_only: False
 
 models:
   teacher_model:
