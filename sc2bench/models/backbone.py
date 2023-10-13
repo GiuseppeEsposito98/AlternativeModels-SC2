@@ -8,6 +8,7 @@ from torchdistill.common.constant import def_logger
 from torchdistill.models.registry import register_model_class, register_model_func
 from torchvision import models
 from torchvision.ops import misc as misc_nn_ops
+from torchvision.models.efficientnet import _make_divisible
 
 from torchdistill.common.main_util import load_ckpt
 from .layer import get_layer
@@ -300,6 +301,88 @@ class SplittableVGG(UpdatableBackbone):
                     block=list()
         return seq_dict
 
+class SplittableMobileNetV3(UpdatableBackbone):
+    def __init__(self, bottleneck_layer, efficientnet_model, inplanes=None, skips_avgpool=True, skips_fc=True,
+                 pre_transform_params=None, analysis_config=None, bottleneck_coverage=12):
+        if analysis_config is None:
+            analysis_config = dict()
+
+        super().__init__(analysis_config.get('analyzer_configs', list()))
+        self.pre_transform = build_transform(pre_transform_params)
+        self.analyzes_after_compress = analysis_config.get('analyzes_after_compress', False)
+        self.seq_dict=self.setup_backbone(efficientnet_model.features)
+        modules = {
+            'bottleneck_layer': bottleneck_layer
+        }
+        self.bottleneck_coverage = bottleneck_coverage
+        for i, conv_block in self.seq_dict.items():
+            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+                modules[i] = conv_block
+                # exec(f'modules[i] = conv_block')
+    
+        self.features = torch.nn.ModuleDict(
+            modules
+        )
+
+        self.avgpool = None if skips_avgpool \
+            else efficientnet_model.avgpool if hasattr(efficientnet_model, 'avgpool') else efficientnet_model.avgpool
+        self.fc = None if skips_fc else efficientnet_model.classifier
+        # self.inplanes = efficientnet_model.inplanes if inplanes is None else inplanes
+        self.inplanes = None
+
+    def forward(self, x):
+        if self.pre_transform is not None:
+            x = self.pre_transform(x)
+
+        if self.bottleneck_updated and not self.training:
+            x = self.features.bottleneck_layer.encode(x)
+            if self.analyzes_after_compress:
+                self.analyze(x)
+            x = self.features.bottleneck_layer.decode(**x)
+        else:
+            x = self.features.bottleneck_layer(x)
+        
+        # x = self.layer5(x)
+        # x = self.layer6(x)
+        # x = self.layer7(x)
+        # x = self.layer8(x)
+        for i, conv_block in self.seq_dict.items():
+            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+                x = conv_block(x)
+        
+        if self.avgpool is None:
+            return x
+
+        x = self.avgpool(x)
+        if self.fc is None:
+            return x
+
+        x = torch.flatten(x, 1)
+        return self.fc(x)
+
+    def update(self):
+        self.features.bottleneck_layer.update()
+        self.bottleneck_updated = True
+
+    def load_state_dict(self, state_dict, **kwargs):
+        entropy_bottleneck_state_dict = OrderedDict()
+        for key in list(state_dict.keys()):
+            if key.startswith('features.bottleneck_layer.'):
+                entropy_bottleneck_state_dict[key.replace('features.bottleneck_layer.', '', 1)] = state_dict.pop(key)
+
+        super().load_state_dict(state_dict, strict=False)
+        self.features.bottleneck_layer.load_state_dict(entropy_bottleneck_state_dict)
+
+    def get_aux_module(self, **kwargs):
+        return self.features.bottleneck_layer if isinstance(self.features.bottleneck_layer, CompressionModel) else None
+
+    def setup_backbone(self, backbone_with_seq):
+        seq_dict = dict()
+        for idx, module in enumerate(backbone_with_seq.children()):
+            seq_dict[f'layer{idx}'] = module
+        return seq_dict
+    
+
 
 class SplittableRegNet(UpdatableBackbone):
     # Referred to the RegNet implementation at https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/regnet.py
@@ -449,6 +532,22 @@ def splittable_vgg16(bottleneck_config, vgg_name='vgg16', inplanes=None, skips_a
     bottleneck_coverage = bottleneck_config['coverage']
     # logger.info(f'vgg_model: {vgg_model}')
     return SplittableVGG(bottleneck_layer, vgg_model, inplanes, skips_avgpool, skips_fc,
+                            pre_transform_params, analysis_config, bottleneck_coverage)
+
+@register_backbone_func
+def splittable_MobileNet_v3_small(bottleneck_config, mobilenet_name='mobilenet_v3_small', inplanes=None, skips_avgpool=True, skips_fc=True,
+                      pre_transform_params=None, analysis_config=None, org_model_ckpt_file_path_or_url=None,
+                      org_ckpt_strict=True, **efficientnet_kwargs):
+    bottleneck_layer = get_layer(bottleneck_config['name'], **bottleneck_config['params'])
+    if efficientnet_kwargs.pop('norm_layer', '') == 'FrozenBatchNorm2d':
+        efficientnet_model = models.__dict__[mobilenet_name](norm_layer=misc_nn_ops.FrozenBatchNorm2d, **efficientnet_kwargs)
+    else:
+        efficientnet_model = models.__dict__[mobilenet_name](**efficientnet_kwargs)
+    if org_model_ckpt_file_path_or_url is not None:
+        load_ckpt(org_model_ckpt_file_path_or_url, model=efficientnet_model, strict=org_ckpt_strict)
+    bottleneck_coverage = bottleneck_config['coverage']
+    # logger.info(f'vgg_model: {vgg_model}')
+    return SplittableMobileNetV3(bottleneck_layer, efficientnet_model, inplanes, skips_avgpool, skips_fc,
                             pre_transform_params, analysis_config, bottleneck_coverage)
 
 

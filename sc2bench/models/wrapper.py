@@ -16,12 +16,11 @@ WRAPPER_CLASS_DICT = dict()
 
 def register_wrapper_class(cls):
     """
-    Registers a model wrapper class.
+    Args:
+        cls (class): wrapper module to be registered.
 
-    :param cls: model wrapper to be registered
-    :type cls: class
-    :return: registered model wrapper class
-    :rtype: class
+    Returns:
+        cls (class): registered wrapper module.
     """
     WRAPPER_CLASS_DICT[cls.__name__] = cls
     return cls
@@ -30,18 +29,13 @@ def register_wrapper_class(cls):
 @register_wrapper_class
 class CodecInputCompressionClassifier(AnalyzableModule):
     """
-    A wrapper module for codec input compression model followed by a classification model.
-
-    :param classification_model: image classification model
-    :type classification_model: nn.Module
-    :param device: torch device
-    :type device: torch.device or str
-    :param codec_params: transform sequence configuration for codec
-    :type codec_params: dict or None
-    :param post_transform_params: post-transform parameters
-    :type post_transform_params: dict or None
-    :param analysis_config: analysis configuration
-    :type analysis_config: dict or None
+    Wrapper module for codec input compression model followed by classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        device (torch.device): torch device
+        codec_params (dict): keyword configurations for transform sequence for codec
+        post_transform_params (dict): keyword configurations for transform sequence after compression model
+        analysis_config (dict): configuration for analysis
     """
     def __init__(self, classification_model, device, codec_params=None,
                  post_transform_params=None, analysis_config=None, **kwargs):
@@ -81,20 +75,13 @@ class CodecInputCompressionClassifier(AnalyzableModule):
 @register_wrapper_class
 class NeuralInputCompressionClassifier(AnalyzableModule):
     """
-    A wrapper module for neural input compression model followed by a classification model.
-
-    :param classification_model: image classification model
-    :type classification_model: nn.Module
-    :param pre_transform_params: pre-transform parameters
-    :type pre_transform_params: dict or None
-    :param compression_model: compression model
-    :type compression_model: nn.Module or None
-    :param uses_cpu4compression_model: whether to use CPU instead of GPU for `comoression_model`
-    :type uses_cpu4compression_model: bool
-    :param post_transform_params: post-transform parameters
-    :type post_transform_params: dict or None
-    :param analysis_config: analysis configuration
-    :type analysis_config: dict or None
+    Wrapper module for neural input compression model followed by classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        pre_transform_params (dict): keyword configurations for transform sequence for input data
+        compression_model (nn.Module): neural input compression model
+        post_transform_params (dict): keyword configurations for transform sequence after compression model
+        analysis_config (dict): configuration for analysis
     """
     def __init__(self, classification_model, pre_transform_params=None, compression_model=None,
                  uses_cpu4compression_model=False, post_transform_params=None, analysis_config=None, **kwargs):
@@ -111,13 +98,18 @@ class NeuralInputCompressionClassifier(AnalyzableModule):
         self.post_transform = build_transform(post_transform_params)
 
     def use_cpu4compression(self):
-        """
-        Changes the device of the compression model to CPU.
-        """
         if self.uses_cpu4compression_model and self.compression_model is not None:
             self.compression_model = self.compression_model.cpu()
 
     def forward(self, x):
+        """
+        Args:
+            x (list of PIL Images or Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classification_model.
+        """
+
         if self.pre_transform is not None:
             x = self.pre_transform(x)
             if not self.training and self.analyzes_after_pre_transform:
@@ -139,24 +131,16 @@ class NeuralInputCompressionClassifier(AnalyzableModule):
 @register_wrapper_class
 class CodecFeatureCompressionClassifier(AnalyzableModule):
     """
-    A wrapper module for codec feature compression model injected to a classification model.
-
-    :param classification_model: image classification model
-    :type classification_model: nn.Module
-    :param device: torch device
-    :type device: torch.device or str
-    :param encoder_config: configuration to design an encoder using modules in classification_model
-    :type encoder_config: dict or None
-    :param codec_params: transform sequence configuration for codec
-    :type codec_params: dict or None
-    :param decoder_config: configuration to design a decoder using modules in classification_model
-    :type decoder_config: dict or None
-    :param classifier_config: configuration to design a classifier using modules in classification_model
-    :type classifier_config: dict or None
-    :param post_transform_params: post-transform parameters
-    :type post_transform_params: dict or None
-    :param analysis_config: analysis configuration
-    :type analysis_config: dict or None
+    Wrapper module for codec feature compression model injected to a classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        device (torch.device): torch device
+        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
+        codec_params (dict): keyword configurations for transform sequence for codec
+        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
+        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
+        post_transform_params (dict): keyword configurations for transform sequence after compression model
+        analysis_config (dict): configuration for analysis
     """
     def __init__(self, classification_model, device, encoder_config=None, codec_params=None, decoder_config=None,
                  classifier_config=None, post_transform_params=None, analysis_config=None, **kwargs):
@@ -175,6 +159,13 @@ class CodecFeatureCompressionClassifier(AnalyzableModule):
         self.post_transform = build_transform(post_transform_params)
 
     def forward(self, x):
+        """
+        Args:
+            x (Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classifier.
+        """
         x = self.encoder(x)
         tmp_list = list()
         for sub_x in x:
@@ -196,22 +187,14 @@ class CodecFeatureCompressionClassifier(AnalyzableModule):
 @register_wrapper_class
 class EntropicClassifier(UpdatableBackbone):
     """
-    A wrapper module for entropic compression model injected to a classification model.
-
-    :param classification_model: image classification model
-    :type classification_model: nn.Module
-    :param device: torch device
-    :type device: torch.device or str
-    :param encoder_config: configuration to design an encoder using modules in classification_model
-    :type encoder_config: dict
-    :param compression_model_params: kwargs for `EntropyBottleneckLayer` in `compressai`
-    :type compression_model_params: dict
-    :param decoder_config: configuration to design a decoder using modules in classification_model
-    :type decoder_config: dict
-    :param classifier_config: configuration to design a classifier using modules in classification_model
-    :type classifier_config: dict
-    :param analysis_config: analysis configuration
-    :type analysis_config: dict or None
+    Wrapper module for entropic compression model injected to a classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
+        compression_model_params (dict): keyword configurations for CompressionModel in compressai
+        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
+        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
+        analysis_config (dict): configuration for analysis
     """
     def __init__(self, classification_model, encoder_config, compression_model_params, decoder_config,
                  classifier_config, analysis_config=None, **kwargs):
@@ -228,6 +211,13 @@ class EntropicClassifier(UpdatableBackbone):
         self.classifier = redesign_model(classification_model, classifier_config, model_label='classification')
 
     def forward(self, x):
+        """
+        Args:
+            x (Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classifier.
+        """
         x = self.encoder(x)
         if self.bottleneck_updated and not self.training:
             x = self.entropy_bottleneck.compress(x)
@@ -246,12 +236,6 @@ class EntropicClassifier(UpdatableBackbone):
         self.bottleneck_updated = True
 
     def load_state_dict(self, state_dict, **kwargs):
-        """
-        Loads parameters for all the sub-modules except entropy_bottleneck and then entropy_bottleneck.
-
-        :param state_dict: dict containing parameters and persistent buffers
-        :type state_dict: dict
-        """
         entropy_bottleneck_state_dict = OrderedDict()
         for key in list(state_dict.keys()):
             if key.startswith('entropy_bottleneck.'):
@@ -262,27 +246,105 @@ class EntropicClassifier(UpdatableBackbone):
 
     def get_aux_module(self, **kwargs):
         return self.entropy_bottleneck
+    
+class ExtractorWrapper(torch.nn.Module):
+
+    def __init__(self, model) -> None:
+        super().__init__()
+        self.redesign_model(model)
+    
+    def redesign_model(self, model):
+        for idx, module in enumerate(model.features.children()):
+            exec(f'self.layer{idx} = module')
+        return None
+    
+    def forward(self, x):
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.layer6(x)
+        x = self.layer7(x)
+        x = self.layer8(x)
+        return x
+    
+@register_wrapper_class
+class EfficientNetB1Classifier(torch.nn.Module):
+    """
+    Wrapper module for entropic compression model injected to a classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
+        compression_model_params (dict): keyword configurations for CompressionModel in compressai
+        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
+        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
+        analysis_config (dict): configuration for analysis
+    """
+    def __init__(self, classification_model, pretrained, num_classes, decoder_config=None,
+                 classifier_config=None, analysis_config=None, **kwargs):
+        # if analysis_config is None:
+        #     analysis_config = dict()
+
+        super().__init__()
+        new_features = ExtractorWrapper(classification_model)
+        classification_model.features=new_features
+        self.classification_model = classification_model
+    def forward(self, x):
+        """
+        Args:
+            x (Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classifier.
+        """
+        x = self.classification_model(x)
+
+@register_wrapper_class
+class MobileNetV3Classifier(torch.nn.Module):
+    """
+    Wrapper module for entropic compression model injected to a classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
+        compression_model_params (dict): keyword configurations for CompressionModel in compressai
+        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
+        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
+        analysis_config (dict): configuration for analysis
+    """
+    def __init__(self, classification_model, pretrained, num_classes, decoder_config=None,
+                 classifier_config=None, analysis_config=None, **kwargs):
+        # if analysis_config is None:
+        #     analysis_config = dict()
+
+        super().__init__()
+        new_features = ExtractorWrapper(classification_model)
+        classification_model.features=new_features
+        self.classification_model = classification_model
+    def forward(self, x):
+        """
+        Args:
+            x (Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classifier.
+        """
+        x = self.classification_model(x)
 
 
 @register_wrapper_class
 class SplitClassifier(UpdatableBackbone):
     """
-    A wrapper module for naively splitting a classification model.
-
-    :param classification_model: image classification model
-    :type classification_model: nn.Module
-    :param encoder_config: configuration to design an encoder using modules in classification_model
-    :type encoder_config: dict or None
-    :param decoder_config: configuration to design a decoder using modules in classification_model
-    :type decoder_config: dict or None
-    :param classifier_config: configuration to design a classifier using modules in classification_model
-    :type classifier_config: dict or None
-    :param compressor_transform_params: transform parameters for compressor
-    :type compressor_transform_params: dict or None
-    :param decompressor_transform_params: transform parameters for decompressor
-    :type decompressor_transform_params: dict or None
-    :param analysis_config: analysis configuration
-    :type analysis_config: dict or None
+    Wrapper module for naively splitting a classifier.
+    Args:
+        classification_model (nn.Module): classification model
+        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
+        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
+        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
+        compressor_transform_params (dict): keyword configurations to build transform for compression
+        decompressor_transform_params (dict): keyword configurations to build transform for decompression
+        analysis_config (dict): configuration for analysis
     """
     def __init__(self, classification_model, encoder_config, decoder_config,
                  classifier_config, compressor_transform_params=None, decompressor_transform_params=None,
@@ -301,6 +363,13 @@ class SplitClassifier(UpdatableBackbone):
         self.classifier = redesign_model(classification_model, classifier_config, model_label='classification')
 
     def forward(self, x):
+        """
+        Args:
+            x (Tensor): input sample.
+
+        Returns:
+            Tensor: output tensor from self.classifier.
+        """
         x = self.encoder(x)
         if self.bottleneck_updated and not self.training:
             x = self.compressor(x)
@@ -321,18 +390,14 @@ class SplitClassifier(UpdatableBackbone):
 
 def wrap_model(wrapper_model_name, model, compression_model, **kwargs):
     """
-    Wraps a model and a compression model with a wrapper module.
+    Args:
+        wrapper_model_name (str): wrapper model key in wrapper model register.
+        model (nn.Module): model to be wrapped.
+        compression_model (nn.Module): compressor to be wrapped.
+        **kwargs (dict): keyword arguments to instantiate a wrapper object.
 
-    :param wrapper_model_name: wrapper model name
-    :type wrapper_model_name: str
-    :param model: model
-    :type model: nn.Module
-    :param compression_model: compression model
-    :type compression_model: nn.Module
-    :param kwargs: kwargs for the wrapper class or function to build the wrapper module
-    :type kwargs: dict
-    :return: wrapped model
-    :rtype: nn.Module
+    Returns:
+        nn.Module: a wrapper module.
     """
     if wrapper_model_name not in WRAPPER_CLASS_DICT:
         raise ValueError('wrapper_model_name `{}` is not expected'.format(wrapper_model_name))
@@ -341,16 +406,13 @@ def wrap_model(wrapper_model_name, model, compression_model, **kwargs):
 
 def get_wrapped_classification_model(wrapper_model_config, device, distributed):
     """
-    Gets a wrapped image classification model.
+    Args:
+        wrapper_model_config (dict): wrapper model configuration.
+        device (device): torch device.
+        distributed (bool): uses distributed training model.
 
-    :param wrapper_model_config: wrapper model configuration
-    :type wrapper_model_config: dict
-    :param device: torch device
-    :type device: torch.device
-    :param distributed: whether to use the model in distributed training mode
-    :type distributed: bool
-    :return: wrapped image classification model
-    :rtype: nn.Module
+    Returns:
+        nn.Module: a wrapped module.
     """
     wrapper_model_name = wrapper_model_config['name']
     if wrapper_model_name not in WRAPPER_CLASS_DICT:
