@@ -34,6 +34,7 @@ def get_argparser():
     parser.add_argument('--json', help='json string to overwrite config')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('--log', help='log file path')
+    parser.add_argument('--writerlog', help='tensorboard log directory path')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='start epoch')
     parser.add_argument('--seed', type=int, help='seed in random number generator')
     parser.add_argument('-test_only', action='store_true', help='only test the models')
@@ -182,7 +183,8 @@ def main(args):
     if is_main_process() and log_file_path is not None:
         setup_log_file(os.path.expanduser(log_file_path))
 
-    distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    # distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    distributed, device_ids = False, None
     logger.info(args)
     cudnn.benchmark = True
     cudnn.deterministic = True
@@ -198,10 +200,12 @@ def main(args):
     teacher_model_config = models_config.get('teacher_model', None)
     teacher_model =\
         load_model(teacher_model_config, device, distributed) if teacher_model_config is not None else None
+    # logger.info(teacher_model)
     student_model_config =\
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
     ckpt_file_path = student_model_config.get('ckpt', None)
     student_model = load_model(student_model_config, device, distributed)
+    # logger.info(student_model)
     if args.log_config:
         logger.info(config)
 

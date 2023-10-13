@@ -28,8 +28,9 @@ from sc2bench.common.config_util import overwrite_config
 from sc2bench.models.detection.base import check_if_updatable_detection_model
 from sc2bench.models.detection.registry import load_detection_model
 from sc2bench.models.detection.wrapper import get_wrapped_detection_model
-from torchvision.models.detection.ssd import ssd300_vgg16
+
 from PIL import ImageFile
+from torch.utils.tensorboard import SummaryWriter
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 logger = def_logger.getChild(__name__)
@@ -43,6 +44,7 @@ def get_argparser():
     parser.add_argument('--json', help='json string to overwrite config')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('--log', help='log file path')
+    parser.add_argument('--writerlog', help='tensorboard log directory path')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='start epoch')
     parser.add_argument('--iou_types', nargs='+', help='IoU types for evaluation '
                                                        '(the first IoU type is used for checkpoint selection)')
@@ -68,7 +70,7 @@ def load_model(model_config, device):
     return get_wrapped_detection_model(model_config, device)
 
 
-def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch, log_freq):
+def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch, log_freq, writer):
     metric_logger = MetricLogger(delimiter='  ')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     metric_logger.add_meter('img/s', SmoothedValue(window_size=10, fmt='{value}'))
@@ -80,6 +82,7 @@ def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch,
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         start_time = time.time()
         supp_dict = default_collate(supp_dict)
+        torch.cuda.empty_cache()
         loss = training_box(sample_batch, targets, supp_dict)
         aux_loss = None
         if uses_aux_loss:
@@ -97,6 +100,9 @@ def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch,
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
         if (torch.isnan(loss) or torch.isinf(loss)) and is_main_process():
             raise ValueError('The training loop was broken due to loss = {}'.format(loss))
+    writer.add_scalar('speed', metric_logger.meters['img/s'].global_avg)
+    writer.add_scalar('training_loss', loss)
+    
 
 
 def get_iou_types(model):
@@ -120,7 +126,7 @@ def log_info(*args, **kwargs):
 
 @torch.inference_mode()
 def evaluate(model_wo_ddp, data_loader, iou_types, device, device_ids, distributed, no_dp_eval=False,
-             log_freq=1000, title=None, header='Test:'):
+             log_freq=1000, title=None, header='Test:', writer=None):
     model = model_wo_ddp.to(device)
     if distributed and not no_dp_eval:
         model = DistributedDataParallel(model, device_ids=device_ids)
@@ -172,6 +178,7 @@ def evaluate(model_wo_ddp, data_loader, iou_types, device, device_ids, distribut
     avg_stats_str = 'Averaged stats: {}'.format(metric_logger)
     logger.info(avg_stats_str)
     coco_evaluator.synchronize_between_processes()
+    # writer.add_scalar('training map', metric_logger.values())
 
     # accumulate predictions from all images
     coco_evaluator.accumulate()
@@ -186,7 +193,7 @@ def evaluate(model_wo_ddp, data_loader, iou_types, device, device_ids, distribut
     return coco_evaluator
 
 
-def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args):
+def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args, writer):
     logger.info('Start training')
     train_config = config['train']
     lr_factor = args.world_size if distributed and args.adjust_lr else 1
@@ -202,8 +209,9 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     iou_types = args.iou_types
     val_iou_type = iou_types[0] if isinstance(iou_types, (list, tuple)) and len(iou_types) > 0 else 'bbox'
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
-    aux_module = student_model_without_ddp.get_aux_module() \
-        if check_if_updatable_detection_model(student_model_without_ddp) else None
+    # aux_module = student_model_without_ddp.get_aux_module() \
+    #     if check_if_updatable_detection_model(student_model_without_ddp) else None
+    aux_module=None
     epoch_to_update = train_config.get('epoch_to_update', None)
     bottleneck_updated = False
     no_dp_eval = args.no_dp_eval
@@ -214,13 +222,14 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
             logger.info('Updating entropy bottleneck')
             student_model_without_ddp.update()
             bottleneck_updated = True
-
-        train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch, log_freq)
+        train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch, log_freq, writer)
         val_coco_evaluator =\
             evaluate(student_model, training_box.val_data_loader, iou_types, device, device_ids, distributed,
-                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:')
+                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:', writer=writer)
+        
         # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
         val_map = val_coco_evaluator.coco_eval[val_iou_type].stats[0]
+        writer.add_scalar('validation map', val_map)
         if val_map > best_val_map and is_main_process():
             logger.info('Best mAP ({}): {:.4f} -> {:.4f}'.format(val_iou_type, best_val_map, val_map))
             logger.info('Updating ckpt at {}'.format(ckpt_file_path))
@@ -228,6 +237,13 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
             save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
                       best_val_map, config, args, ckpt_file_path)
         training_box.post_process()
+
+        if epoch == 20:
+            for i in [1,3,6,8,12,14,16,19]:
+                exec(f'student_model.backbone.features.body.bottleneck_layer.max{i}.clear()')
+                evaluate(student_model, training_box.val_data_loader, iou_types, device, device_ids, distributed,
+                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:', writer=writer)
+                exec(f'logger.info(max(student_model.backbone.features.body.bottleneck_layer.max{i}))')
 
     if distributed:
         dist.barrier()
@@ -245,7 +261,8 @@ def main(args):
     if is_main_process() and log_file_path is not None:
         setup_log_file(os.path.expanduser(log_file_path))
 
-    distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    # distributed, device_ids = init_distributed_mode(args.world_size, args.dist_url)
+    distributed, device_ids = False, None
     logger.info(args)
     cudnn.benchmark = True
     cudnn.deterministic = True
@@ -260,21 +277,22 @@ def main(args):
     models_config = config['models']
     teacher_model_config = models_config.get('teacher_model', None)
     teacher_model = load_model(teacher_model_config, device) if teacher_model_config is not None else None
-    # logger.info(teacher_model)
+    # logger.info(f'teacher_model: {teacher_model}')
     student_model_config =\
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
     
     ckpt_file_path = student_model_config.get('ckpt', None)
     student_model = load_model(student_model_config, device)
-    # logger.info(student_model)
-    # logger.info(f'student_model: {student_model}') 
+    # logger.info(f'student_model: {student_model}')
 
     # if args.train_teacher:
     
     if args.log_config:
         logger.info(config)
-    if not args.test_only:
-        train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
+    logger.info(args.test_only)
+    if not args.test_only and not args.student_only:
+        writer = SummaryWriter(os.path.join(args.writerlog, 'ssd_run'))
+        train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args, writer)
         student_model_without_ddp =\
             student_model.module if module_util.check_if_wrapped(student_model) else student_model
         load_ckpt(student_model_config['ckpt'], model=student_model_without_ddp, strict=True)
@@ -289,7 +307,7 @@ def main(args):
     if not args.student_only and teacher_model is not None:
         evaluate(teacher_model, test_data_loader, iou_types, device, device_ids, distributed, no_dp_eval=no_dp_eval,
                  log_freq=log_freq, title='[Teacher: {}]'.format(teacher_model_config['name']))
-
+    
     if check_if_updatable_detection_model(student_model):
         student_model.update()
 
