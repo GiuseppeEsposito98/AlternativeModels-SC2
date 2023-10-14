@@ -23,6 +23,7 @@ from sc2bench.common.config_util import overwrite_config
 from sc2bench.models.backbone import check_if_updatable
 from sc2bench.models.registry import load_classification_model
 from sc2bench.models.wrapper import get_wrapped_classification_model
+from torch.utils.tensorboard import SummaryWriter
 
 logger = def_logger.getChild(__name__)
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -91,7 +92,7 @@ def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch,
 
 @torch.inference_mode()
 def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_eval=False,
-             log_freq=1000, title=None, header='Test:'):
+             log_freq=1000, title=None, header='Test:', writer=None):
     model = model_wo_ddp.to(device)
     if distributed and not no_dp_eval:
         model = DistributedDataParallel(model_wo_ddp, device_ids=device_ids)
@@ -131,7 +132,7 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_e
     return metric_logger.acc1.global_avg
 
 
-def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args):
+def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args, writer):
     logger.info('Start training')
     train_config = config['train']
     lr_factor = args.world_size if distributed and args.adjust_lr else 1
@@ -160,7 +161,8 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
         train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch, log_freq)
         val_top1_accuracy = evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
-                                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:')
+                                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:', writer = writer)
+        writer.add_scalar('validation top1 accuracy', val_top1_accuracy, epoch+1)
         if val_top1_accuracy > best_val_top1_accuracy and is_main_process():
             logger.info('Best top-1 accuracy: {:.4f} -> {:.4f}'.format(best_val_top1_accuracy, val_top1_accuracy))
             logger.info('Updating ckpt at {}'.format(ckpt_file_path))
@@ -168,6 +170,13 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
             save_ckpt(student_model_without_ddp, optimizer, lr_scheduler,
                       best_val_top1_accuracy, config, args, ckpt_file_path)
         training_box.post_process()
+
+    if epoch == 20:
+            for i in [1,3,6,8,12,14,16,19]:
+                exec(f'student_model.backbone.features.body.bottleneck_layer.max{i}.clear()')
+                evaluate(student_model, training_box.val_data_loader, device, device_ids, distributed,
+                     no_dp_eval=no_dp_eval, log_freq=log_freq, header='Validation:', writer=writer)
+                exec(f'logger.info(max(student_model.backbone.features.body.bottleneck_layer.max{i}))')
 
     if distributed:
         dist.barrier()
@@ -210,7 +219,8 @@ def main(args):
         logger.info(config)
 
     if not args.test_only:
-        train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args)
+        writer = SummaryWriter(os.path.join(args.writerlog, 'mobilenet'))
+        train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args, writer)
         student_model_without_ddp =\
             student_model.module if module_util.check_if_wrapped(student_model) else student_model
         load_ckpt(student_model_config['ckpt'], model=student_model_without_ddp, strict=True)

@@ -56,13 +56,13 @@ models:
       num_classes: 1000
       pretrained: True
       bottleneck_config:
-        name: 'mobilenet_v3_small_compression'
-        start_coverage: 0
-        end_coverage: 5
+        name: 'mobilenet_v3_small_compression_cov2'
+        start_coverage: 1
+        end_coverage: 3
         params:
           bottleneck_channel: &bch 6
-          bottleneck_idx: 10 #########
-          output_channel: 40
+          bottleneck_idx: 6 #########
+          output_channel: 24
           compressor_transform_params:
             - type: 'SimpleQuantizer'
               params:
@@ -108,10 +108,10 @@ train:
     wrapper: 'DistributedDataParallel'
     requires_grad: False
   student:
-    frozen_modules: ['features.layer6', 'features.layer7', 'features.layer8','features.layer9', 'features.layer10', 'features.layer11', 'features.layer12']
+    frozen_modules: ['features.layer0', 'features.layer4','features.layer5','features.layer6', 'features.layer7', 'features.layer8','features.layer9', 'features.layer10', 'features.layer11', 'features.layer12']
     forward_hook:
       input: []
-      output: ['features.bottleneck_layer', 'features.layer6', 'features.layer7', 'features.layer8','features.layer9', 'features.layer10', 'features.layer11', 'features.layer12']
+      output: ['features.layer0', 'features.bottleneck_layer','features.layer4','features.layer5', 'features.layer6', 'features.layer7', 'features.layer8','features.layer9', 'features.layer10', 'features.layer11', 'features.layer12']
     wrapper: 'DistributedDataParallel'
     requires_grad: True
   optimizer:
@@ -140,10 +140,40 @@ train:
             io: 'output'
           target:
             is_from_teacher: True
-            module_path: 'classification_model.features.layer5'
+            module_path: 'classification_model.features.layer3'
             io: 'output'
         factor: 1.0
       layer2:
+        criterion:
+          type: 'MSELoss'
+          params:
+            reduction: 'sum'
+        params:
+          input:
+            is_from_teacher: False
+            module_path: 'features.layer4'
+            io: 'output'
+          target:
+            is_from_teacher: True
+            module_path: 'classification_model.features.layer4'
+            io: 'output'
+        factor: 1.0
+      layer3:
+        criterion:
+          type: 'MSELoss'
+          params:
+            reduction: 'sum'
+        params:
+          input:
+            is_from_teacher: False
+            module_path: 'features.layer5'
+            io: 'output'
+          target:
+            is_from_teacher: True
+            module_path: 'classification_model.features.layer5'
+            io: 'output'
+        factor: 1.0
+      layer4:
         criterion:
           type: 'MSELoss'
           params:
@@ -158,7 +188,7 @@ train:
             module_path: 'classification_model.features.layer6'
             io: 'output'
         factor: 1.0
-      layer3:
+      layer5:
         criterion:
           type: 'MSELoss'
           params:
@@ -173,7 +203,7 @@ train:
             module_path: 'classification_model.features.layer7'
             io: 'output'
         factor: 1.0
-      layer4:
+      layer6:
         criterion:
           type: 'MSELoss'
           params:
@@ -188,7 +218,8 @@ train:
             module_path: 'classification_model.features.layer8'
             io: 'output'
         factor: 1.0
-      layer5:
+
+      layer7:
         criterion:
           type: 'MSELoss'
           params:
@@ -203,7 +234,8 @@ train:
             module_path: 'classification_model.features.layer9'
             io: 'output'
         factor: 1.0
-      layer6:
+
+      layer8:
         criterion:
           type: 'MSELoss'
           params:
@@ -218,8 +250,7 @@ train:
             module_path: 'classification_model.features.layer10'
             io: 'output'
         factor: 1.0
-
-      layer7:
+      layer9:
         criterion:
           type: 'MSELoss'
           params:
@@ -232,22 +263,6 @@ train:
           target:
             is_from_teacher: True
             module_path: 'classification_model.features.layer11'
-            io: 'output'
-        factor: 1.0
-
-      layer8:
-        criterion:
-          type: 'MSELoss'
-          params:
-            reduction: 'sum'
-        params:
-          input:
-            is_from_teacher: False
-            module_path: 'features.layer12'
-            io: 'output'
-          target:
-            is_from_teacher: True
-            module_path: 'classification_model.features.layer12'
             io: 'output'
         factor: 1.0
 

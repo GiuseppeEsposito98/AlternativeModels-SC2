@@ -57,7 +57,8 @@ models:
       pretrained: True
       bottleneck_config:
         name: 'mobilenet_v3_small_fusion_compression'
-        coverage: 5
+        start_coverage: 0
+        end_coverage: 5
         params:
           bottleneck_channel: &bch 6
           bottleneck_idx: 9 #########
