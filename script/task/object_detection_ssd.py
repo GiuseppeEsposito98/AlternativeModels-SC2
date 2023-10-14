@@ -100,8 +100,8 @@ def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch,
         metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
         if (torch.isnan(loss) or torch.isinf(loss)) and is_main_process():
             raise ValueError('The training loop was broken due to loss = {}'.format(loss))
-    writer.add_scalar('speed', metric_logger.meters['img/s'].global_avg)
-    writer.add_scalar('training_loss', loss)
+    writer.add_scalar('speed', metric_logger.meters['img/s'].global_avg, epoch+1)
+    writer.add_scalar('training_loss', loss, epoch+1)
     
 
 
@@ -229,7 +229,7 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
         
         # Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]
         val_map = val_coco_evaluator.coco_eval[val_iou_type].stats[0]
-        writer.add_scalar('validation map', val_map)
+        writer.add_scalar('validation map', val_map, epoch+1)
         if val_map > best_val_map and is_main_process():
             logger.info('Best mAP ({}): {:.4f} -> {:.4f}'.format(val_iou_type, best_val_map, val_map))
             logger.info('Updating ckpt at {}'.format(ckpt_file_path))
