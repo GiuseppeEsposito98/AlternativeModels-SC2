@@ -1,9 +1,8 @@
-from torchvision.models.mobilenetv3 import MobileNetV3, _mobilenet_v3_conf
-from torchvision.datasets import CIFAR100
+from torchvision.models.detection.ssd import SSD, vgg16, DefaultBoxGenerator, VGG16_Weights, _vgg_extractor
+from torchvision.datasets import CocoDetection
 from torch.utils.data import DataLoader
 from sklearn.model_selection import ParameterGrid
-from torch.optim import lr_scheduler
-from eval import accuracy
+from eval import compute_mAP
 from tqdm import tqdm
 from copy import deepcopy
 from torch.utils.tensorboard import SummaryWriter
@@ -44,20 +43,10 @@ def get_transformer(mode: str, input_size = (32,32)):
         ])
     return transform
 
-def adjust_learning_rate(optimizer, epoch):
-    lr = optimizer.param_groups[0]['lr']
-
-    if (epoch % 5) ==0:
-        lr = lr**(epoch*0.4)
-
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
     
-def train(model, criterion, optimizer, dataloader:DataLoader, epoch:int, writer=None):
+def train(model, optimizer, dataloader:DataLoader, epoch:int, writer=None):
     model.train().to(device='cuda')
 
-    prec1s=list()
-    prec5s=list()
     losses = list()
 
     for i, (input, target) in enumerate(dataloader):
@@ -65,42 +54,29 @@ def train(model, criterion, optimizer, dataloader:DataLoader, epoch:int, writer=
         # measure data loading time
         # data_time.update(time.time() - end)
 
-        target = target.cuda(non_blocking=True)
+        # target = target.cuda(non_blocking=True)
+        print(target)
         input = input.to(device='cuda')
         # compute output
-        output = model(input)
+        loss = model(input, target)
         # print(f'output={output}')
-        loss = criterion(output, target)
         # measure accuracy and record loss
-        prec1, prec5 = accuracy(output, target, topk=(1, 5))
-        # losses.update(loss.item(), input.size(0))
-        # top1.update(prec1.item(), input.size(0))
-        # top5.update(prec5.item(), input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        prec1s.append(prec1)
-        prec5s.append(prec5)
         losses.append(loss)
 
-    prec1_avg = sum(prec1s)/len(prec1s)
-    prec5_avg = sum(prec5s)/len(prec5s)
     loss_avg = sum(losses)/len(losses)
     writer.add_scalar('train_loss', loss_avg, epoch+1)
-    writer.add_scalar('train_prec1', prec1_avg, epoch+1)
-    writer.add_scalar('train_prec5', prec5_avg, epoch+1)
 
-    return loss_avg, prec1_avg, prec5_avg
+    return loss_avg
 
 def validate(model, val_loader, criterion, epoch, writer=None):
     # switch to evaluate mode
     model.eval().to(device='cuda')
-    prec1s=list()
-    prec5s=list()
-    losses=list()
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda(non_blocking=True)
         input = input.to(device='cuda')
@@ -108,23 +84,12 @@ def validate(model, val_loader, criterion, epoch, writer=None):
         with torch.no_grad():
             # compute output
             output = model(input)
-            loss = criterion(output, target)
 
-        prec1, prec5 = accuracy(output, target, topk=(1, 5))
-    
-        prec1s.append(prec1)
-        prec5s.append(prec5)
-        losses.append(loss)
+            print(output)
 
-    prec1_avg = sum(prec1s)/len(prec1s)
-    prec5_avg = sum(prec5s)/len(prec5s)
-    loss_avg = sum(losses)/len(losses)
+    # writer.add_scalar('val_loss', loss_avg, epoch+1)
 
-    writer.add_scalar('val_loss', loss_avg, epoch+1)
-    writer.add_scalar('val_prec1', prec1_avg, epoch+1)
-    writer.add_scalar('val_prec5', prec5_avg, epoch+1)
-
-    return loss_avg, prec1_avg, prec5_avg
+    # return loss_avg, prec1_avg, prec5_avg
 
 class Wrapper(torch.nn.Module):
     def __init__(self, original_model) -> None:
@@ -166,20 +131,29 @@ def main():
         other_formatting = f"step_{config['scheduler_step_size']}_gamma_{config['gamma']}_start_lr_{config['start_lr']}_weight_decay_{config['weight_decay']}"
 
         # model instantiation
-        inverted_residual_setting, last_channel = _mobilenet_v3_conf(arch='mobilenet_v3_small')
-        model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel)
+        size=(300,300)
+        
+        backbone = vgg16(weights=VGG16_Weights.IMAGENET1K_FEATURES, progress=True)
+        backbone=_vgg_extractor(backbone, False, 4)
+        anchor_generator = DefaultBoxGenerator(
+            [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
+            scales=[0.07, 0.15, 0.33, 0.51, 0.69, 0.87, 1.05],
+            steps=[8, 16, 32, 64, 100, 300],
+        )
+        image_mean=[0.48235, 0.45882, 0.40784]
+        image_std=[1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0]
+
+        model = SSD(backbone=backbone, anchor_generator=anchor_generator, size=size, image_mean=image_mean, image_std=image_std, num_classes=91)
+        
         # dataloaders
         transformer = get_transformer('train')
-        train_set = CIFAR100('~/dataset/cifar100', train=True, transform=transformer, download=True)
-        train_loader = DataLoader(dataset=train_set, batch_size = 2048, shuffle=True, pin_memory=True)
+        train_set = CocoDetection('~/dataset/coco2017/train2017',annFile='/home/g.esposito/dataset/coco2017/annotations/person_keypoints_train2017.json', transform=transformer)
+        train_loader = DataLoader(dataset=train_set, batch_size = 1, shuffle=True, pin_memory=True)
 
         transformer = get_transformer('test')
-        val_set = CIFAR100('~/dataset/cifar100', transform=transformer, download=True)
-        val_loader = DataLoader(dataset=val_set, batch_size = 2048, shuffle=True, pin_memory=True)
+        val_set = CocoDetection('~/dataset/coco2017/val2017',annFile='/home/g.esposito/dataset/coco2017/annotations/person_keypoints_val2017.json', transform=transformer)
+        val_loader = DataLoader(dataset=val_set, batch_size = 1, shuffle=True, pin_memory=True)
 
-        # loss setup
-        # criterion = torch.nn.CrossEntropyLoss()
-        criterion = torch.nn.CrossEntropyLoss().cuda()
 
         # optimizer 
         optimizer = torch.optim.SGD(model.parameters(), config['start_lr'],
@@ -193,23 +167,15 @@ def main():
 
     
         # train
-        writer = SummaryWriter("/home/g.esposito/AlternativeModels-SC2/script/teacher_training/100epochs/{}".format(formatted_config))
+        writer = SummaryWriter("/home/g.esposito/AlternativeModels-SC2/script/teacher_training/obj_detection/100epochs/{}".format(formatted_config))
         best_prec1 = 0.0
-        # train_loss_avg=0.0
-        # val_loss_avg=0.0
-        # val_prec1_avg=0.0
-        # writer.add_hparams(config,
-        #                        {
-        #                            'train_loss': train_loss_avg,
-        #                            'val_loss': val_loss_avg,
-        #                            'val_prec1_avg': val_prec1_avg
-        #                        })
+
 
         for epoch in tqdm(range(150)):
             print(f'epoch: {epoch}')
-            train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
+            train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
 
-            val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
+            val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, epoch=epoch, writer=writer)
             print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
             scheduler.step()
 
@@ -221,7 +187,7 @@ def main():
                     'state_dict': model.state_dict(),
                     'best_prec1': best_prec1,
                     'optimizer': optimizer.state_dict(),
-                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{}.pth'.format(best_prec1))
+                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/obj_detection/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{}.pth'.format(best_prec1))
 
 
 if __name__ == '__main__':
