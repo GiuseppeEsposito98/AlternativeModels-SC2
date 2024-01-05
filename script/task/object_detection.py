@@ -195,8 +195,9 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
     iou_types = args.iou_types
     val_iou_type = iou_types[0] if isinstance(iou_types, (list, tuple)) and len(iou_types) > 0 else 'bbox'
     student_model_without_ddp = student_model.module if module_util.check_if_wrapped(student_model) else student_model
-    aux_module = student_model_without_ddp.get_aux_module() \
-        if check_if_updatable_detection_model(student_model_without_ddp) else None
+    # aux_module = student_model_without_ddp.get_aux_module() \
+    #     if check_if_updatable_detection_model(student_model_without_ddp) else None
+    aux_module = None
     epoch_to_update = train_config.get('epoch_to_update', None)
     bottleneck_updated = False
     no_dp_eval = args.no_dp_eval
@@ -255,6 +256,7 @@ def main(args):
         models_config['student_model'] if 'student_model' in models_config else models_config['model']
     ckpt_file_path = student_model_config.get('ckpt', None)
     student_model = load_model(student_model_config, device)
+    # logger.info(student_model)
     if args.log_config:
         logger.info(config)
 
