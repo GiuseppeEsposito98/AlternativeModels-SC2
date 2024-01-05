@@ -39,9 +39,9 @@ models:
           num_classes: 1000
           pretrained: True
           bottleneck_config:
-            name: 'larger_resnet_bottleneck'
+            name: 'larger_resnet_bottleneck_custom_relu'
             params:
-              bottleneck_channel: &bch 1
+              bottleneck_channel: &bch 6
               bottleneck_idx: 12
               output_channel: 256
               compressor_transform_params:
@@ -73,7 +73,7 @@ models:
                 unit: 'KB'
         analyzable_layer_key: 'bottleneck_layer'
       start_ckpt_file_path:
-    experiment: &student_experiment !join [*dataset_name, '-faster_rcnn_resnet50-bq', *bch, 'ch_fpn_from_faster_rcnn_resnet50_fpn_prova']
+    experiment: &student_experiment !join [*dataset_name, '-faster_rcnn_resnet50-bq', *bch, 'ch_fpn_from_faster_rcnn_resnet50_fpn_custom_relu']
     ckpt: !join ['./resource/ckpt/coco2017/supervised_compression/ghnd-bq/', *student_experiment, '.pt']
 
 train:
