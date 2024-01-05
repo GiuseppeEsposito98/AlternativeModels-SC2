@@ -72,6 +72,63 @@ def register_layer_func(func):
 #         logger.info('This module has no updatable parameters for entropy coding')
 
 
+# class SimpleBottleneck(nn.Module):
+#     """
+#     Simple encoder-decoder layer to treat encoder's output as bottleneck
+#     """
+#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+#         super().__init__()
+#         self.encoder = encoder
+#         self.decoder = decoder
+#         self.compressor = compressor
+#         self.decompressor = decompressor
+#         self.max1 = list()
+#         self.max3 = list()
+#         self.max6 = list()
+#         self.max8 = list()
+#         self.max12 = list()
+#         self.max14 = list()
+#         self.max16 = list()
+#         self.max19 = list()
+
+#     def encode(self, x):
+#         for idx in range(1,len(list(self.encoder.children()))+1):
+#             if idx in [1,3,6, 8, 12]:
+#                 x = list(self.encoder.children())[idx-1](x)
+#                 # logger.info(torch.max(x).item())
+#                 exec(f'self.max{idx}.append(torch.max(x).item())')
+#             else: 
+#                 x = list(self.encoder.children())[idx-1](x)
+
+#         # z = self.encoder(x)
+#         if self.compressor is not None:
+#             x = self.compressor(x)
+#         return {'z': x}
+
+#     def decode(self, z):
+#         if self.decompressor is not None:
+#             z = self.decompressor(z)
+
+#         for idx in range(1,len(list(self.decoder.children()))+1):
+#             if idx in [1,3,6]:
+#                 z = list(self.decoder.children())[idx-1](z)
+#                 exec(f'self.max{idx+13}.append(torch.max(z).item())')
+#             else: 
+#                 z = list(self.decoder.children())[idx-1](z)
+#             # z = self.decoder(z)
+#         return z
+
+#     def forward(self, x):
+#         if not self.training:
+#             encoded_obj = self.encode(x)
+#             decoded_obj = self.decode(**encoded_obj)
+#             return decoded_obj
+#         z = self.encoder(x)
+#         return self.decoder(z)
+
+#     def update(self):
+#         logger.info('This module has no updatable parameters for entropy coding')
+
 class SimpleBottleneck(nn.Module):
     """
     Simple encoder-decoder layer to treat encoder's output as bottleneck
@@ -82,18 +139,15 @@ class SimpleBottleneck(nn.Module):
         self.decoder = decoder
         self.compressor = compressor
         self.decompressor = decompressor
-        self.max1 = list()
-        self.max3 = list()
-        self.max6 = list()
+        self.max2 = list()
+        self.max5 = list()
         self.max8 = list()
-        self.max12 = list()
+        self.max11 = list()
         self.max14 = list()
-        self.max16 = list()
-        self.max19 = list()
 
     def encode(self, x):
         for idx in range(1,len(list(self.encoder.children()))+1):
-            if idx in [1,3,6, 8, 12]:
+            if idx in [2,5]:
                 x = list(self.encoder.children())[idx-1](x)
                 # logger.info(torch.max(x).item())
                 exec(f'self.max{idx}.append(torch.max(x).item())')
@@ -110,9 +164,9 @@ class SimpleBottleneck(nn.Module):
             z = self.decompressor(z)
 
         for idx in range(1,len(list(self.decoder.children()))+1):
-            if idx in [1,3,6]:
+            if idx in [2,5,8]:
                 z = list(self.decoder.children())[idx-1](z)
-                exec(f'self.max{idx+13}.append(torch.max(z).item())')
+                exec(f'self.max{idx+6}.append(torch.max(z).item())')
             else: 
                 z = list(self.decoder.children())[idx-1](z)
             # z = self.decoder(z)
@@ -486,43 +540,34 @@ def mobilenet_v3_small_compression_layer_swap(bottleneck_channel=12, bottleneck_
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
 @register_layer_func
-def mobilenet_v3_small_compression_wo_pool(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+def mobilenet_v3_small_compression_cov2(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
                              compressor_transform_params=None, decompressor_transform_params=None):
     
     modules= [
-    nn.Conv2d(3, 21, kernel_size=(3, 3), stride=(2, 2), padding=1, groups=3, bias=False), 
-    nn.BatchNorm2d(21, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
     nn.ReLU(inplace=True),
-    
-    nn.Conv2d(21, 16, kernel_size=(3, 3), stride=(2, 2), padding=1, bias=False), 
-    nn.BatchNorm2d(16, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.ReLU(inplace=True),
-    
-    nn.Conv2d(16, 72, kernel_size=(3, 3), stride=(2, 2), padding=1, bias=False),
-    nn.BatchNorm2d(72, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.ReLU(inplace=True),
-    
-    nn.Conv2d(72, bottleneck_channel, kernel_size=(3, 3), stride=(2, 2), padding=1, bias=False),
+
+    # Seconda convoluzione
+    nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
     nn.ReLU(inplace=True),
-    
-    nn.Conv2d(bottleneck_channel, 40, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False), 
-    nn.BatchNorm2d(40, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardsigmoid(),
 
-    nn.Conv2d(40, 40, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),
-    nn.BatchNorm2d(40, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardswish(),
+    # Terza convoluzione
+    nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
 
-    nn.Conv2d(40, 40, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),  
-    nn.BatchNorm2d(40, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardswish(),
+    # Quarta convoluzione
+    nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
 
-    nn.Conv2d(40, output_channel, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),  
-    nn.BatchNorm2d(output_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardswish(),
+    # Quinta convoluzione
+    nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True)
     ]
-
     encoder = nn.Sequential(*modules[:bottleneck_idx])
     decoder = nn.Sequential(*modules[bottleneck_idx:])
     compressor_transform = build_transform(compressor_transform_params)
@@ -530,85 +575,32 @@ def mobilenet_v3_small_compression_wo_pool(bottleneck_channel=12, bottleneck_idx
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
 @register_layer_func
-def mobilenet_v3_small_compression_custom_activation(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
                              compressor_transform_params=None, decompressor_transform_params=None):
     modules= [
-        nn.Conv2d(3, 21, kernel_size=(3, 3), stride=(4, 4), padding=0, groups=3, bias=False),
-        nn.BatchNorm2d(21, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardtanh(inplace=True), ########
-        nn.AdaptiveAvgPool2d(output_size=(56, 56)),
-        
-        nn.Conv2d(21, 16, kernel_size=(1, 1), stride=(1, 1), bias=False),
-        nn.BatchNorm2d(16, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardtanh(inplace=True), ########
-        
-        nn.Conv2d(16, bottleneck_channel, kernel_size=(3, 3), stride=(2, 2), padding=1, bias=False),
-        nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardtanh(inplace=True), #####
-        
-        nn.Conv2d(bottleneck_channel, 24, kernel_size=(1, 1), stride=(1, 1), bias=False), # 10
-        nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardtanh(inplace=True), ########
-        
-        nn.Conv2d(24, 96, kernel_size=(3, 3), stride=(2, 2), padding=1, groups=24, bias=False),
-        nn.BatchNorm2d(96, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardswish(),
+    nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Hardtanh(inplace=True, max_val = 20, min_val=0), # 2
 
-        nn.Conv2d(96, 24, kernel_size=(1, 1), stride=(1, 1), bias=False),
-        nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardtanh(inplace=True), ########
-
-        nn.Conv2d(24, 40, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),
-        nn.BatchNorm2d(40, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardsigmoid(),
-
-        nn.Conv2d(40, output_channel, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),
-        nn.BatchNorm2d(output_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-        nn.Hardswish()
-    ]
-
-    encoder = nn.Sequential(*modules[:bottleneck_idx])
-    decoder = nn.Sequential(*modules[bottleneck_idx:])
-    compressor_transform = build_transform(compressor_transform_params)
-    decompressor_transform = build_transform(decompressor_transform_params)
-    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
-
-@register_layer_func
-def mobilenet_v3_small_fusion_compression(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
-                             compressor_transform_params=None, decompressor_transform_params=None):
-    modules= [
-    nn.Conv2d(3, 21, kernel_size=(3, 3), stride=(4, 4), padding=0, groups=3, bias=False),
-    nn.BatchNorm2d(21, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True),
-    nn.AdaptiveAvgPool2d(output_size=(56, 56)),
-    
-    nn.BatchNorm2d(21, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(21, 16, kernel_size=(1, 1), stride=(1, 1), bias=False),
-    nn.Hardtanh(inplace=True),
-    
-    nn.BatchNorm2d(16, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(16, bottleneck_channel, kernel_size=(3, 3), stride=(2, 2), padding=1, bias=False),
-    nn.Hardtanh(inplace=True),
-    
+    # Seconda convoluzione
+    nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(bottleneck_channel, 24, kernel_size=(1, 1), stride=(1, 1), bias=False),
-    nn.Hardtanh(inplace=True),
-    
+    nn.Hardtanh(inplace=True, max_val = 10, min_val=0), # 5 
+
+    # Terza convoluzione
+    nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Hardtanh(inplace=True, max_val = 20, min_val=0), # 8
+
+    # Quarta convoluzione
+    nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Hardtanh(inplace=True, max_val = 18, min_val=0), # 11
+
+    # Quinta convoluzione
+    nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(24, 96, kernel_size=(3, 3), stride=(2, 2), padding=1, groups=24, bias=False),
-    nn.Hardswish(),
-
-    nn.BatchNorm2d(96, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(96, 24, kernel_size=(1, 1), stride=(1, 1), bias=False),
-    nn.Hardtanh(inplace=True),
-
-    nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Conv2d(24, 40, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),
-    nn.Hardsigmoid(),
-
-    nn.Conv2d(40, output_channel, kernel_size=(3, 3), stride=(1, 1), padding=1, bias=False),
-    nn.BatchNorm2d(output_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardswish()
+    nn.Hardtanh(inplace=True, max_val = 17, min_val=0) # 14
     ]
 
     encoder = nn.Sequential(*modules[:bottleneck_idx])
@@ -616,10 +608,6 @@ def mobilenet_v3_small_fusion_compression(bottleneck_channel=12, bottleneck_idx=
     compressor_transform = build_transform(compressor_transform_params)
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
-
-
-
-
 
 
 @register_layer_class
@@ -974,3 +962,4 @@ def get_layer(cls_or_func_name, **kwargs):
         return LAYER_FUNC_DICT[cls_or_func_name](**kwargs)
     return None
 
+ 

@@ -268,39 +268,12 @@ class ExtractorWrapper(torch.nn.Module):
         x = self.layer6(x)
         x = self.layer7(x)
         x = self.layer8(x)
+        x = self.layer9(x)
+        x = self.layer10(x)
+        x = self.layer11(x)
+        x = self.layer12(x)
         return x
     
-@register_wrapper_class
-class EfficientNetB1Classifier(torch.nn.Module):
-    """
-    Wrapper module for entropic compression model injected to a classifier.
-    Args:
-        classification_model (nn.Module): classification model
-        encoder_config (dict): keyword configurations to design an encoder from modules in classification_model
-        compression_model_params (dict): keyword configurations for CompressionModel in compressai
-        decoder_config (dict): keyword configurations to design a decoder from modules in classification_model
-        classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
-        analysis_config (dict): configuration for analysis
-    """
-    def __init__(self, classification_model, pretrained, num_classes, decoder_config=None,
-                 classifier_config=None, analysis_config=None, **kwargs):
-        # if analysis_config is None:
-        #     analysis_config = dict()
-
-        super().__init__()
-        new_features = ExtractorWrapper(classification_model)
-        classification_model.features=new_features
-        self.classification_model = classification_model
-    def forward(self, x):
-        """
-        Args:
-            x (Tensor): input sample.
-
-        Returns:
-            Tensor: output tensor from self.classifier.
-        """
-        x = self.classification_model(x)
-
 @register_wrapper_class
 class MobileNetV3Classifier(torch.nn.Module):
     """
@@ -313,7 +286,7 @@ class MobileNetV3Classifier(torch.nn.Module):
         classifier_config (dict): keyword configurations to design a classifier from modules in classification_model
         analysis_config (dict): configuration for analysis
     """
-    def __init__(self, classification_model, pretrained, num_classes, decoder_config=None,
+    def __init__(self, classification_model, num_classes, decoder_config=None,
                  classifier_config=None, analysis_config=None, **kwargs):
         # if analysis_config is None:
         #     analysis_config = dict()
@@ -322,6 +295,7 @@ class MobileNetV3Classifier(torch.nn.Module):
         new_features = ExtractorWrapper(classification_model)
         classification_model.features=new_features
         self.classification_model = classification_model
+        print(self.classification_model)
     def forward(self, x):
         """
         Args:
@@ -417,14 +391,13 @@ def get_wrapped_classification_model(wrapper_model_config, device, distributed):
     wrapper_model_name = wrapper_model_config['name']
     if wrapper_model_name not in WRAPPER_CLASS_DICT:
         raise ValueError('wrapper_model_name `{}` is not expected'.format(wrapper_model_name))
-
     compression_model_config = wrapper_model_config.get('compression_model', None)
     compression_model = get_compression_model(compression_model_config, device)
     classification_model_config = wrapper_model_config['classification_model']
     model = load_classification_model(classification_model_config, device, distributed)
+    ckpt_file_path = wrapper_model_config.get('ckpt', None)
     wrapped_model = WRAPPER_CLASS_DICT[wrapper_model_name](model, compression_model=compression_model, device=device,
                                                            **wrapper_model_config['params'])
-    ckpt_file_path = wrapper_model_config.get('ckpt', None)
     if ckpt_file_path is not None:
-        load_ckpt(ckpt_file_path, model=wrapped_model, strict=False)
+        load_ckpt(ckpt_file_path, model=model, strict=False)
     return wrapped_model
