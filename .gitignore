@@ -13,3 +13,4 @@ writers_logs_*
 *.txt
 FSIM_N_*
 FSIM_W_*
+*epochs*
