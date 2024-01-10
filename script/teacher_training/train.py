@@ -2,6 +2,7 @@ from torchvision.models.mobilenetv3 import MobileNetV3, _mobilenet_v3_conf
 from torchvision.datasets import CIFAR100
 from torch.utils.data import DataLoader
 from sklearn.model_selection import ParameterGrid
+from cosine_scheduler import CosineWarmupLR
 from torch.optim import lr_scheduler
 from eval import accuracy
 from tqdm import tqdm
@@ -145,10 +146,10 @@ def main():
 
     #grid search 
     PARAMS = {
-    'start_lr': [0.1],
-    'scheduler_step_size': [20, 30],
-    'gamma': [0.1, 0.05],
-    'weight_decay':  [1e-4]
+    'start_lr': [0.15],
+    'scheduler_step_size': [3],
+    'gamma': [0.99],
+    'weight_decay':  [6e-5]
     }
 
     my_configs = ParameterGrid(PARAMS)
@@ -167,21 +168,21 @@ def main():
 
         # model instantiation
         inverted_residual_setting, last_channel = _mobilenet_v3_conf(arch='mobilenet_v3_small')
-        model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel)
+        model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel, num_classes=100)
         # dataloaders
         transformer = get_transformer('train')
         train_set = CIFAR100('~/dataset/cifar100', train=True, transform=transformer, download=True)
-        train_loader = DataLoader(dataset=train_set, batch_size = 2048, shuffle=True, pin_memory=True)
+        train_loader = DataLoader(dataset=train_set, batch_size = 256, shuffle=True, pin_memory=True)
 
         transformer = get_transformer('test')
         val_set = CIFAR100('~/dataset/cifar100', transform=transformer, download=True)
-        val_loader = DataLoader(dataset=val_set, batch_size = 2048, shuffle=True, pin_memory=True)
+        val_loader = DataLoader(dataset=val_set, batch_size = 256, shuffle=True, pin_memory=True)
 
         # loss setup
         # criterion = torch.nn.CrossEntropyLoss()
         criterion = torch.nn.CrossEntropyLoss().cuda()
 
-        # optimizer 
+        # # optimizer 
         optimizer = torch.optim.SGD(model.parameters(), config['start_lr'],
                                     momentum=0.9,
                                     weight_decay=config['weight_decay'])
@@ -189,11 +190,12 @@ def main():
         #                                 weight_decay=config['weight_decay'], eps=0.0316, alpha=0.9)
         
         # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3, verbose=True)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['scheduler_step_size'], gamma=config['gamma'])
+        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['scheduler_step_size'], gamma=config['gamma'])
+        scheduler = CosineWarmupLR(optimizer=optimizer, epochs=400, warmup_epochs=5, iter_in_one_epoch=len(train_loader))
 
     
         # train
-        writer = SummaryWriter("/home/g.esposito/AlternativeModels-SC2/script/teacher_training/100epochs/{}".format(formatted_config))
+        writer = SummaryWriter("/home/g.esposito/AlternativeModels-SC2/script/teacher_training/400epochs/{}".format(formatted_config))
         best_prec1 = 0.0
         # train_loss_avg=0.0
         # val_loss_avg=0.0
@@ -205,7 +207,7 @@ def main():
         #                            'val_prec1_avg': val_prec1_avg
         #                        })
 
-        for epoch in tqdm(range(150)):
+        for epoch in tqdm(range(400)):
             print(f'epoch: {epoch}')
             train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
 
@@ -221,8 +223,45 @@ def main():
                     'state_dict': model.state_dict(),
                     'best_prec1': best_prec1,
                     'optimizer': optimizer.state_dict(),
-                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{}.pth'.format(best_prec1))
+                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{:3f}_{}epoch.pth'.format(best_prec1, epoch))
 
 
 if __name__ == '__main__':
     main()
+
+
+
+
+# batch-size
+# mode: using MobileNetV3-Small(if set to small) or MobileNetV3-Large(if set to large).
+# dataset: which dataset to use(CIFAR10, CIFAR100, SVHN, TinyImageNet or ImageNet).
+# ema-decay: decay of EMA, if set to 0, do not use EMA.
+# label-smoothing: $epsilon$ using in label smoothing, if set to 0, do not use label smoothing.
+# lr-decay: learning rate decay schedule, step or cos.
+# lr-min: min lr in cos lr decay.
+# warmup-epochs: warmup epochs using in cos lr deacy.
+# num-epochs: total training epochs.
+# nbd: no bias decay.
+# zero-gamma: zero $gamma$ of last BN in each block.
+# mixup: using Mixup.
+
+
+
+    # parser.add_argument('--num-class', type=int, default=1000)
+    # parser.add_argument('--label-smoothing', type=float, default=0.1, help='label smoothing') # 0.1
+    # parser.add_argument('--decay-rate', type=float, default=1, help='decay rate in CosineAnnealingWarmRestarts')
+    # parser.add_argument('--bn-momentum', type=float, default=0.1, help='momentum in BatchNorm2d')
+    # parser.add_argument('-nbd', default=False, action='store_true', help='no bias decay') # True
+    # parser.add_argument('-zero-gamma', default=False, action='store_true', help='zero gamma in BatchNorm2d when init') # True
+    # parser.add_argument('-mixup', default=False, action='store_true', help='mixup or not') # True
+    # parser.add_argument('--mixup-alpha', type=float, default=0.2, help='alpha used in mixup')
+
+
+# CUDA_VISIBLE_DEVICES=1 python train.py --batch-size=128 --mode=small --print-freq=100 --dataset=CIFAR100\
+#   --ema-decay=0 --label-smoothing=0 --lr=0.35 --save-epoch-freq=1000 --lr-decay=cos --lr-min=0\
+#   --warmup-epochs=5 --weight-decay=6e-5 --num-epochs=400 --num-workers=2 --width-multiplier=1
+
+# CUDA_VISIBLE_DEVICES=1 python train.py --batch-size=128 --mode=small --print-freq=100 --dataset=CIFAR100\
+#   --ema-decay=0.999 --label-smoothing=0.1 --lr=0.35 --save-epoch-freq=1000 --lr-decay=cos --lr-min=0\
+#   --warmup-epochs=5 --weight-decay=6e-5 --num-epochs=400 --num-workers=2 --width-multiplier=1\
+#   -zero-gamma -nbd -mixup

@@ -2,3 +2,14 @@
 .ipynb_checkpoints/
 __pycache__/
 .editorconfig
+FSIM_*
+resource
+plots
+*.json
+*.log
+*.pt
+*.pth
+writers_logs_*
+*.txt
+*epochs*
+ckpt*
