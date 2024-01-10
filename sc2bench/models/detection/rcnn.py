@@ -3,8 +3,7 @@ from torch.hub import load_state_dict_from_url
 from torchdistill.common.main_util import load_ckpt
 from torchvision.models.detection._utils import overwrite_eps
 from torchvision.models.detection.faster_rcnn import FasterRCNN, model_urls as faster_rcnn_model_urls
-from torchvision.models.detection.ssd import SSD, ssd300_vgg16, DefaultBoxGenerator, model_urls as  ssd_model_urls
-from torchvision.models.detection import ssdlite320_mobilenet_v3_large
+from torchvision.models.detection.ssd import SSD, ssd300_vgg16, model_urls as  ssd_model_urls
 from torchvision.models.detection.generalized_rcnn import GeneralizedRCNN
 from torchvision.ops import misc as misc_nn_ops
 from torchvision.ops.feature_pyramid_network import LastLevelMaxPool
@@ -141,6 +140,7 @@ class Basessd(SSD, UpdatableDetectionModel):
         SSD.__init__(self, ssd_model.backbone, ssd_model.anchor_generator, (300,300), num_classes=91, head=ssd_model.head)
 
     def update(self, **kwargs):
+        logger.info(self.backbone.features.body)
         if not check_if_updatable(self.backbone.features.body):
             raise KeyError(f'`backbone` {type(self)} is not updatable')
         self.backbone.features.body.update()

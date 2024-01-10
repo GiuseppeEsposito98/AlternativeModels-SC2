@@ -8,7 +8,6 @@ from torchdistill.common.constant import def_logger
 from torchdistill.models.registry import register_model_class, register_model_func
 from torchvision import models
 from torchvision.ops import misc as misc_nn_ops
-from torchvision.models.efficientnet import _make_divisible
 
 from torchdistill.common.main_util import load_ckpt
 from .layer import get_layer
@@ -51,47 +50,12 @@ def check_if_updatable(model):
     return isinstance(model, UpdatableBackbone)
 
 
-class FeatureExtractionBackboneVGG(UpdatableBackbone):
-    # Referred to the IntermediateLayerGetter implementation at https://github.com/pytorch/vision/blob/main/torchvision/models/_utils.py
-    def __init__(self, model, return_layer_dict, analyzer_configs, analyzes_after_compress=False,
-                 analyzable_layer_key=None):
-        if not set(return_layer_dict).issubset([name for name, _ in model.named_children()]):
-            raise ValueError('return_layer_dict are not present in model')
-
-        super().__init__(analyzer_configs)
-        org_return_layer_dict = return_layer_dict
-        return_layer_dict = {str(k): str(v) for k, v in return_layer_dict.items()}
-        layer_dict = OrderedDict()
-        for name, module in model.named_children():
-            layer_dict[name] = module
-            if name in return_layer_dict:
-                return_layer_dict.pop(name)
-            # Once all the return layers are extracted, the remaining layers are no longer used, thus pruned
-            if len(return_layer_dict) == 0:
-                break
-
-        for key, module in layer_dict.items():
-            self.add_module(key, module)
-
-        self.return_layer_dict = org_return_layer_dict
-        self.analyzable_layer_key = analyzable_layer_key
-        self.analyzes_after_compress = analyzes_after_compress
-
-    def forward(self, x):
-        for module_key, module in self.named_children():
-            if module_key == self.analyzable_layer_key and self.bottleneck_updated and not self.training:
-                x = module.encode(x)
-                if self.analyzes_after_compress:
-                    self.analyze(x)
-                x = module.decode(**x)
-            else:
-                x = module(x)
-        return x
-
 class FeatureExtractionBackbone(UpdatableBackbone):
     # Referred to the IntermediateLayerGetter implementation at https://github.com/pytorch/vision/blob/main/torchvision/models/_utils.py
     def __init__(self, model, return_layer_dict, analyzer_configs, analyzes_after_compress=False,
                  analyzable_layer_key=None):
+        # logger.info(f'return_layer_dict: {return_layer_dict}')
+        # logger.info(f'[name for name, _ in model.named_children()]: {[name for name, _ in model.named_children()]}')
         if not set(return_layer_dict).issubset([name for name, _ in model.named_children()]):
             raise ValueError('return_layer_dict are not present in model')
 
@@ -115,7 +79,7 @@ class FeatureExtractionBackbone(UpdatableBackbone):
         self.analyzes_after_compress = analyzes_after_compress
 
     def forward(self, x):
-        out = OrderedDict()
+        # out = OrderedDict()
         for module_key, module in self.named_children():
             if module_key == self.analyzable_layer_key and self.bottleneck_updated and not self.training:
                 x = module.encode(x)
@@ -125,10 +89,10 @@ class FeatureExtractionBackbone(UpdatableBackbone):
             else:
                 x = module(x)
 
-            if module_key in self.return_layer_dict:
-                out_name = self.return_layer_dict[module_key]
-                out[out_name] = x
-        return out
+            # if module_key in self.return_layer_dict:
+            #     out_name = self.return_layer_dict[module_key]
+            #     out[out_name] = x
+        return x
 
     def check_if_updatable(self, strict=True):
         if self.analyzable_layer_key is None or self.analyzable_layer_key not in self._modules \
@@ -151,7 +115,6 @@ class FeatureExtractionBackbone(UpdatableBackbone):
         if self.analyzable_layer_key is None:
             return None
         return self._modules[self.analyzable_layer_key] if self.check_if_updatable() else None
-    
 
 
 class SplittableResNet(UpdatableBackbone):
@@ -300,23 +263,24 @@ class SplittableVGG(UpdatableBackbone):
                     seq_dict[f'layer{name}'] = torch.nn.Sequential(*block)
                     block=list()
         return seq_dict
-
+    
 class SplittableMobileNetV3(UpdatableBackbone):
     def __init__(self, bottleneck_layer, efficientnet_model, inplanes=None, skips_avgpool=True, skips_fc=True,
-                 pre_transform_params=None, analysis_config=None, bottleneck_coverage=12):
+                 pre_transform_params=None, analysis_config=None, start_coverage=0, end_coverage=3):
         if analysis_config is None:
             analysis_config = dict()
 
         super().__init__(analysis_config.get('analyzer_configs', list()))
         self.pre_transform = build_transform(pre_transform_params)
         self.analyzes_after_compress = analysis_config.get('analyzes_after_compress', False)
+        self.end_coverage = end_coverage
         self.seq_dict=self.setup_backbone(efficientnet_model.features)
         modules = {
+            'layer0': self.seq_dict['layer0'],
             'bottleneck_layer': bottleneck_layer
         }
-        self.bottleneck_coverage = bottleneck_coverage
         for i, conv_block in self.seq_dict.items():
-            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+            if int(i.split('layer')[1]) > end_coverage:
                 modules[i] = conv_block
                 # exec(f'modules[i] = conv_block')
     
@@ -333,6 +297,7 @@ class SplittableMobileNetV3(UpdatableBackbone):
     def forward(self, x):
         if self.pre_transform is not None:
             x = self.pre_transform(x)
+        x = self.features.layer0(x)
 
         if self.bottleneck_updated and not self.training:
             x = self.features.bottleneck_layer.encode(x)
@@ -347,7 +312,7 @@ class SplittableMobileNetV3(UpdatableBackbone):
         # x = self.layer7(x)
         # x = self.layer8(x)
         for i, conv_block in self.seq_dict.items():
-            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+            if int(i.split('layer')[1]) > self.end_coverage:
                 x = conv_block(x)
         
         if self.avgpool is None:
@@ -381,7 +346,6 @@ class SplittableMobileNetV3(UpdatableBackbone):
         for idx, module in enumerate(backbone_with_seq.children()):
             seq_dict[f'layer{idx}'] = module
         return seq_dict
-    
 
 
 class SplittableRegNet(UpdatableBackbone):
@@ -537,18 +501,19 @@ def splittable_vgg16(bottleneck_config, vgg_name='vgg16', inplanes=None, skips_a
 @register_backbone_func
 def splittable_MobileNet_v3_small(bottleneck_config, mobilenet_name='mobilenet_v3_small', inplanes=None, skips_avgpool=True, skips_fc=True,
                       pre_transform_params=None, analysis_config=None, org_model_ckpt_file_path_or_url=None,
-                      org_ckpt_strict=True, **efficientnet_kwargs):
+                      org_ckpt_strict=True, **mobilenet_kwargs):
     bottleneck_layer = get_layer(bottleneck_config['name'], **bottleneck_config['params'])
-    if efficientnet_kwargs.pop('norm_layer', '') == 'FrozenBatchNorm2d':
-        efficientnet_model = models.__dict__[mobilenet_name](norm_layer=misc_nn_ops.FrozenBatchNorm2d, **efficientnet_kwargs)
+    if mobilenet_kwargs.pop('norm_layer', '') == 'FrozenBatchNorm2d':
+        mobilenet_model = models.__dict__[mobilenet_name](norm_layer=misc_nn_ops.FrozenBatchNorm2d, **mobilenet_kwargs)
     else:
-        efficientnet_model = models.__dict__[mobilenet_name](**efficientnet_kwargs)
+        mobilenet_model = models.__dict__[mobilenet_name](**mobilenet_kwargs)
     if org_model_ckpt_file_path_or_url is not None:
-        load_ckpt(org_model_ckpt_file_path_or_url, model=efficientnet_model, strict=org_ckpt_strict)
-    bottleneck_coverage = bottleneck_config['coverage']
+        load_ckpt(org_model_ckpt_file_path_or_url, model=mobilenet_model, strict=org_ckpt_strict)
+    start_coverage = bottleneck_config['start_coverage']
+    end_coverage = bottleneck_config['end_coverage']
     # logger.info(f'vgg_model: {vgg_model}')
-    return SplittableMobileNetV3(bottleneck_layer, efficientnet_model, inplanes, skips_avgpool, skips_fc,
-                            pre_transform_params, analysis_config, bottleneck_coverage)
+    return SplittableMobileNetV3(bottleneck_layer, mobilenet_model, inplanes, skips_avgpool, skips_fc,
+                            pre_transform_params, analysis_config, start_coverage, end_coverage)
 
 
 

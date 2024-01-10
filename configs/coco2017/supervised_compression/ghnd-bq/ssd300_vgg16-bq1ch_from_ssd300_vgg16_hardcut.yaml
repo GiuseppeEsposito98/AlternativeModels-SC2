@@ -71,7 +71,7 @@ models:
               params:
                 unit: 'KB'
         analyzable_layer_key: 'bottleneck_layer'
-      start_ckpt_file_path: './resource/ckpt/coco2017/supervised_compression/ghnd-bq/coco2017-ssd300_vgg16-bq12ch_ssd300_vgg16_lr10_5_ch6_with_norm.pt'
+      start_ckpt_file_path: './resource/ckpt/coco2017/supervised_compression/ghnd-bq/coco2017-ssd300_vgg16-bq6ch_ssd300_vgg16_hardcut.pt'
     experiment: &student_experiment !join [*dataset_name, '-ssd300_vgg16-bq', *bch, 'ch_ssd300_vgg16_lr10_5_ch6_with_norm']
     ckpt: !join ['./resource/ckpt/coco2017/supervised_compression/ghnd-bq/', *student_experiment, '.pt']
 
