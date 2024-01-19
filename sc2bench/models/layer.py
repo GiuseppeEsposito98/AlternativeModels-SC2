@@ -38,38 +38,38 @@ def register_layer_func(func):
     LAYER_FUNC_DICT[func.__name__] = func
     return func
 
-# class SimpleBottleneck(nn.Module):
-#     """
-#     Simple encoder-decoder layer to treat encoder's output as bottleneck
-#     """
-#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
-#         super().__init__()
-#         self.encoder = encoder
-#         self.decoder = decoder
-#         self.compressor = compressor
-#         self.decompressor = decompressor
+class SimpleBottleneck(nn.Module):
+    """
+    Simple encoder-decoder layer to treat encoder's output as bottleneck
+    """
+    def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.compressor = compressor
+        self.decompressor = decompressor
 
-#     def encode(self, x):
-#         z = self.encoder(x)
-#         if self.compressor is not None:
-#             z = self.compressor(z)
-#         return {'z': z}
+    def encode(self, x):
+        z = self.encoder(x)
+        if self.compressor is not None:
+            z = self.compressor(z)
+        return {'z': z}
 
-#     def decode(self, z):
-#         if self.decompressor is not None:
-#             z = self.decompressor(z)
-#         return self.decoder(z)
+    def decode(self, z):
+        if self.decompressor is not None:
+            z = self.decompressor(z)
+        return self.decoder(z)
 
-#     def forward(self, x):
-#         if not self.training:
-#             encoded_obj = self.encode(x)
-#             decoded_obj = self.decode(**encoded_obj)
-#             return decoded_obj
-#         z = self.encoder(x)
-#         return self.decoder(z)
+    def forward(self, x):
+        if not self.training:
+            encoded_obj = self.encode(x)
+            decoded_obj = self.decode(**encoded_obj)
+            return decoded_obj
+        z = self.encoder(x)
+        return self.decoder(z)
 
-#     def update(self):
-#         logger.info('This module has no updatable parameters for entropy coding')
+    def update(self):
+        logger.info('This module has no updatable parameters for entropy coding')
 
 
 # class SimpleBottleneck(nn.Module):
@@ -129,59 +129,59 @@ def register_layer_func(func):
 #     def update(self):
 #         logger.info('This module has no updatable parameters for entropy coding')
 
-class SimpleBottleneck(nn.Module):
-    """
-    Simple encoder-decoder layer to treat encoder's output as bottleneck
-    """
-    def __init__(self, encoder, decoder, compressor=None, decompressor=None):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-        self.compressor = compressor
-        self.decompressor = decompressor
-        self.max2 = list()
-        self.max5 = list()
-        self.max8 = list()
-        self.max11 = list()
-        self.max14 = list()
+# class SimpleBottleneck(nn.Module):
+#     """
+#     Simple encoder-decoder layer to treat encoder's output as bottleneck
+#     """
+#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+#         super().__init__()
+#         self.encoder = encoder
+#         self.decoder = decoder
+#         self.compressor = compressor
+#         self.decompressor = decompressor
+#         self.max2 = list()
+#         self.max5 = list()
+#         self.max8 = list()
+#         self.max11 = list()
+#         self.max14 = list()
 
-    def encode(self, x):
-        for idx in range(1,len(list(self.encoder.children()))+1):
-            if idx in [2,5]:
-                x = list(self.encoder.children())[idx-1](x)
-                # logger.info(torch.max(x).item())
-                exec(f'self.max{idx}.append(torch.max(x).item())')
-            else: 
-                x = list(self.encoder.children())[idx-1](x)
+#     def encode(self, x):
+#         for idx in range(1,len(list(self.encoder.children()))+1):
+#             if idx in [2,5]:
+#                 x = list(self.encoder.children())[idx-1](x)
+#                 # logger.info(torch.max(x).item())
+#                 exec(f'self.max{idx}.append(torch.max(x).item())')
+#             else: 
+#                 x = list(self.encoder.children())[idx-1](x)
 
-        # z = self.encoder(x)
-        if self.compressor is not None:
-            x = self.compressor(x)
-        return {'z': x}
+#         # z = self.encoder(x)
+#         if self.compressor is not None:
+#             x = self.compressor(x)
+#         return {'z': x}
 
-    def decode(self, z):
-        if self.decompressor is not None:
-            z = self.decompressor(z)
+#     def decode(self, z):
+#         if self.decompressor is not None:
+#             z = self.decompressor(z)
 
-        for idx in range(1,len(list(self.decoder.children()))+1):
-            if idx in [2,5,8]:
-                z = list(self.decoder.children())[idx-1](z)
-                exec(f'self.max{idx+6}.append(torch.max(z).item())')
-            else: 
-                z = list(self.decoder.children())[idx-1](z)
-            # z = self.decoder(z)
-        return z
+#         for idx in range(1,len(list(self.decoder.children()))+1):
+#             if idx in [2,5,8]:
+#                 z = list(self.decoder.children())[idx-1](z)
+#                 exec(f'self.max{idx+6}.append(torch.max(z).item())')
+#             else: 
+#                 z = list(self.decoder.children())[idx-1](z)
+#             # z = self.decoder(z)
+#         return z
 
-    def forward(self, x):
-        if not self.training:
-            encoded_obj = self.encode(x)
-            decoded_obj = self.decode(**encoded_obj)
-            return decoded_obj
-        z = self.encoder(x)
-        return self.decoder(z)
+#     def forward(self, x):
+#         if not self.training:
+#             encoded_obj = self.encode(x)
+#             decoded_obj = self.decode(**encoded_obj)
+#             return decoded_obj
+#         z = self.encoder(x)
+#         return self.decoder(z)
 
-    def update(self):
-        logger.info('This module has no updatable parameters for entropy coding')
+#     def update(self):
+#         logger.info('This module has no updatable parameters for entropy coding')
 
 
 @register_layer_func

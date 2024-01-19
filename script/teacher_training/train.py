@@ -96,7 +96,7 @@ def train(model, criterion, optimizer, dataloader:DataLoader, epoch:int, writer=
 
     return loss_avg, prec1_avg, prec5_avg
 
-def validate(model, val_loader, criterion, epoch, writer=None):
+def validate(model, val_loader, criterion, writer=None):
     # switch to evaluate mode
     model.eval().to(device='cuda')
     prec1s=list()
@@ -121,9 +121,9 @@ def validate(model, val_loader, criterion, epoch, writer=None):
     prec5_avg = sum(prec5s)/len(prec5s)
     loss_avg = sum(losses)/len(losses)
 
-    writer.add_scalar('val_loss', loss_avg, epoch+1)
-    writer.add_scalar('val_prec1', prec1_avg, epoch+1)
-    writer.add_scalar('val_prec5', prec5_avg, epoch+1)
+    # writer.add_scalar('val_loss', loss_avg, epoch+1)
+    # writer.add_scalar('val_prec1', prec1_avg, epoch+1)
+    # writer.add_scalar('val_prec5', prec5_avg, epoch+1)
 
     return loss_avg, prec1_avg, prec5_avg
 
@@ -207,23 +207,30 @@ def main():
         #                            'val_prec1_avg': val_prec1_avg
         #                        })
 
-        for epoch in tqdm(range(400)):
-            print(f'epoch: {epoch}')
-            train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
+        # for epoch in tqdm(range(400)):
+        #     print(f'epoch: {epoch}')
+        #     train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
 
-            val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
-            print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
-            scheduler.step()
+        #     val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
+        #     print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
+        #     scheduler.step()
 
-            is_best = val_prec1_avg > best_prec1
-            best_prec1 = max(val_prec1_avg, best_prec1)
+        #     is_best = val_prec1_avg > best_prec1
+        #     best_prec1 = max(val_prec1_avg, best_prec1)
 
-            save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer': optimizer.state_dict(),
-                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{:3f}_{}epoch.pth'.format(best_prec1, epoch))
+        #     save_checkpoint({
+        #             'epoch': epoch + 1,
+        #             'state_dict': model.state_dict(),
+        #             'best_prec1': best_prec1,
+        #             'optimizer': optimizer.state_dict(),
+        #         }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{:3f}_{}epoch.pth'.format(best_prec1, epoch))
+        state_dict = torch.load('resource/ckpt/cifar100/teacher/cifar100-mobilenet_v3_small.pth')['state_dict']
+        model.load_state_dict(state_dict)
+        val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, writer=writer)
+        print(val_loss_avg)
+        print(val_prec1_avg)
+        print(val_prec5_avg)
+        
 
 
 if __name__ == '__main__':
