@@ -38,6 +38,56 @@ def register_layer_func(func):
     LAYER_FUNC_DICT[func.__name__] = func
     return func
 
+class ClipSimpleBottleneck(nn.Module):
+    """
+    Simple encoder-decoder layer to treat encoder's output as bottleneck
+    """
+    def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.compressor = compressor
+        self.decompressor = decompressor
+
+    def encode(self, x):
+        bounding_act=[20,10]
+        act_counter = 0
+        current_max = bounding_act[act_counter]
+        for el in self.encoder._modules.values():
+            x = el(x)
+            if not isinstance(el, torch.nn.Conv2d) and not isinstance(el, torch.nn.Hardtanh) and act_counter !=0:
+                x = torch.maximum(x, torch.tensor(0))
+                x = torch.minimum(x, torch.tensor(current_max))
+            elif isinstance(el, torch.nn.ReLU):
+                x = torch.maximum(x, torch.tensor(0))
+                x = torch.minimum(x, torch.tensor(current_max))
+                act_counter+=1
+                current_max = bounding_act[act_counter]
+        # for name, child in self.encoder._modules.items():
+        #     if name != '2' and name != '4', :
+        #         x = child(x)
+        #     else:
+        # z = self.encoder(x)
+        if self.compressor is not None:
+            x = self.compressor(x)
+        return {'z': x}
+
+    def decode(self, z):
+        if self.decompressor is not None:
+            z = self.decompressor(z)
+        return self.decoder(z)
+
+    def forward(self, x):
+        if not self.training:
+            encoded_obj = self.encode(x)
+            decoded_obj = self.decode(**encoded_obj)
+            return decoded_obj
+        z = self.encoder(x)
+        return self.decoder(z)
+
+    def update(self):
+        logger.info('This module has no updatable parameters for entropy coding')
+
 class SimpleBottleneck(nn.Module):
     """
     Simple encoder-decoder layer to treat encoder's output as bottleneck
@@ -50,10 +100,10 @@ class SimpleBottleneck(nn.Module):
         self.decompressor = decompressor
 
     def encode(self, x):
-        z = self.encoder(x)
+        x = self.encoder(x)
         if self.compressor is not None:
-            z = self.compressor(z)
-        return {'z': z}
+            x = self.compressor(x)
+        return {'z': x}
 
     def decode(self, z):
         if self.decompressor is not None:
@@ -575,6 +625,41 @@ def mobilenet_v3_small_compression_cov2(bottleneck_channel=12, bottleneck_idx=12
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
 @register_layer_func
+def mobilenet_v3_small_compression_cov2_ranger(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    
+    modules= [
+    nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
+
+    # Seconda convoluzione
+    nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
+
+    # Terza convoluzione
+    nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
+
+    # Quarta convoluzione
+    nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True),
+
+    # Quinta convoluzione
+    nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(inplace=True)
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return ClipSimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+@register_layer_func
 def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
                              compressor_transform_params=None, decompressor_transform_params=None):
     modules= [
@@ -595,12 +680,14 @@ def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottl
     # Quarta convoluzione
     nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 18, min_val=0), # 11
+    nn.ReLU(),
+    # nn.Hardtanh(inplace=True, max_val = 18, min_val=0), # 11
 
     # Quinta convoluzione
     nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 17, min_val=0) # 14
+    nn.ReLU()
+    # nn.Hardtanh(inplace=True, max_val = 17, min_val=0) # 14
     ]
 
     encoder = nn.Sequential(*modules[:bottleneck_idx])
