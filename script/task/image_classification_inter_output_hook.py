@@ -108,8 +108,9 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_e
     analyzable = check_if_analyzable(model_wo_ddp)
     metric_logger = MetricLogger(delimiter='  ')
     logger.info(model)
-    hook1 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[2])
-    hook2 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[5])
+    hook2 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[2])
+    hook3 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[5])
+    hook1 = IntermediateOutputHook(model.module.features.layer0)
     im = 0
     for image, target in metric_logger.log_every(data_loader, log_freq, header):
         if isinstance(image, torch.Tensor):
@@ -131,13 +132,16 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_e
 
     intermediate_output1 = hook1.outputs
     intermediate_output2 = hook2.outputs
+    intermediate_output3 = hook3.outputs
     # logger.info(type(intermediate_output1))
     # logger.info(type(intermediate_output2))
     logger.info("===========================")
     stacked_tensor1 = torch.stack(intermediate_output1, dim=0)
     stacked_tensor2 = torch.stack(intermediate_output2, dim=0)
+    stacked_tensor3 = torch.stack(intermediate_output3, dim=0)
     logger.info(torch.max(stacked_tensor1))
-    logger.info(torch.max(stacked_tensor1))
+    logger.info(torch.max(stacked_tensor2))
+    logger.info(torch.max(stacked_tensor3))
     logger.info("===========================")
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
