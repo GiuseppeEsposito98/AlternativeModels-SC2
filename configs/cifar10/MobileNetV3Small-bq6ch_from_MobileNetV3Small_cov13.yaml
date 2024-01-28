@@ -1,35 +1,42 @@
 datasets:
   ilsvrc2012:
-    name: &dataset_name 'cifar100'
-    type: 'CIFAR100'
+    name: &dataset_name 'cifar10'
+    type: 'CIFAR10'
     root: &root_dir !join ['~/dataset/', *dataset_name]
     splits:
       train:
         dataset_id: &cifar_train !join [*dataset_name, '/train']
         params:
           train: True
+          download: True
           root: *root_dir
           transform_params:
-            - type: 'RandomResizedCrop'
+            - &resize
+              type: 'Resize'
               params:
-                size: &input_size [32, 32]
-            - type: 'RandomHorizontalFlip'
+                size: &input_size [70 , 70]
+            - &randomCrop
+              type: 'RandomCrop'
               params:
-                p: 0.5
+                size: [64 , 64]
             - &totensor
               type: 'ToTensor'
               params:
             - &normalize
               type: 'Normalize'
-              params:
-                mean: [0.5071, 0.4867, 0.4408]
-                std: [0.2675, 0.2565, 0.2761]
+              params: 
+                mean: [0.5, 0.5, 0.5]
+                std: [0.5, 0.5, 0.5]
+            
       val:
         dataset_id: &cifar_val !join [*dataset_name, '/val']
         params:
+          download: True
           train: False
           root: *root_dir
           transform_params:
+            - *resize
+            - *randomCrop
             - *totensor
             - *normalize
 
@@ -39,19 +46,19 @@ models:
     classification_model:
       name: &teacher_model_name 'mobilenet_v3_small'
       params:
-        num_classes: 100
+        num_classes: 10
         pretrained: False
       experiment: &teacher_experiment !join [*dataset_name, '-', *teacher_model_name]
-      ckpt: !join ['./resource/ckpt/cifar100/teacher/', *teacher_experiment, '.pth']
+      ckpt: !join ['./resource/ckpt/cifar10/teacher/', *teacher_experiment, '.pt']
     params:
-      num_classes: 100
+      num_classes: 10
   student_model:
     name: 'splittable_MobileNet_v3_small'
     params:
-      num_classes: 100
-      org_model_ckpt_file_path_or_url: !join ['./resource/ckpt/cifar100/teacher/', *teacher_experiment, '.pth']
+      num_classes: 10
+      org_model_ckpt_file_path_or_url: !join ['./resource/ckpt/cifar10/teacher/', *teacher_experiment, '.pt']
       bottleneck_config:
-        name: 'mobilenet_v3_small_compression_cov2_custom_relu'
+        name: 'mobilenet_v3_small_compression_cov2'
         start_coverage: 1
         end_coverage: 3
         params:
@@ -76,8 +83,8 @@ models:
           - type: 'FileSizeAnalyzer'
             params:
               unit: 'KB'
-    experiment: &experiment !join [*dataset_name, '-mobilenet_v3_small-bq', *bch, 'ch_from_', *teacher_model_name, 'custom_relu']
-    ckpt: !join ['./resource/ckpt/cifar100/supervised_compression/ghnd-bq/', *experiment,'.pt']
+    experiment: &experiment !join [*dataset_name, '-mobilenet_v3_small-bq', *bch, 'ch_from_', *teacher_model_name]
+    ckpt: !join ['./resource/ckpt/cifar10/supervised_compression/ghnd-bq/', *experiment, '.pt']
 
 train:
   log_freq: 1000
@@ -86,7 +93,7 @@ train:
   train_data_loader:
     dataset_id: *cifar_train
     random_sample: True
-    batch_size: 64
+    batch_size: 4
     num_workers: 16
     cache_output:
   val_data_loader:
@@ -112,12 +119,12 @@ train:
   optimizer:
     type: 'Adam'
     params:
-      lr: 0.01
+      lr: 0.005
   scheduler:
     type: 'MultiStepLR'
     params:
-      milestones: [5, 10, 15]
-      gamma: 0.1
+      milestones: [2,4,6,8,10,12,14,16,18]
+      gamma: 0.55
   criterion:
     type: 'GeneralizedCustomLoss'
     org_term:
@@ -260,7 +267,7 @@ train:
             module_path: 'classification_model.features.layer11'
             io: 'output'
         factor: 1.0
-      layer9:
+      layer10:
         criterion:
           type: 'MSELoss'
           params:
@@ -275,6 +282,7 @@ train:
             module_path: 'classification_model.features.layer12'
             io: 'output'
         factor: 1.0
+        
 
 test:
   test_data_loader:

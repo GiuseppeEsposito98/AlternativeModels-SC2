@@ -91,9 +91,17 @@ def train_one_epoch(training_box, aux_module, bottleneck_updated, device, epoch,
 
 
 @torch.inference_mode()
-def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_eval=False,
-             log_freq=1000, title=None, header='Test:', writer=None):
+def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, dataset_dict,teacher_model, train_config, lr_factor, no_dp_eval=False,
+             log_freq=1000, title=None, header='Test:', writer=None, ):
+    
     model = model_wo_ddp.to(device)
+    train_config = train_config['train']
+    training_box = get_training_box(model, dataset_dict, train_config,
+                                    device, device_ids, distributed, lr_factor) if teacher_model is None \
+        else get_distillation_box(teacher_model, model, dataset_dict, train_config,
+                                  device, device_ids, distributed, lr_factor)
+    
+    
     if distributed and not no_dp_eval:
         model = DistributedDataParallel(model_wo_ddp, device_ids=device_ids)
     elif device.type.startswith('cuda') and not no_dp_eval:
@@ -112,7 +120,7 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, no_dp_e
     hook3 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[5])
     hook1 = IntermediateOutputHook(model.module.features.layer0)
     im = 0
-    for image, target in metric_logger.log_every(data_loader, log_freq, header):
+    for image, target, supp_dict in metric_logger.log_every(training_box.train_data_loader, log_freq, header):
         if isinstance(image, torch.Tensor):
             image = image.to(device, non_blocking=True)
 
@@ -272,7 +280,8 @@ def main(args):
 
     if check_if_analyzable(student_model):
         student_model.activate_analysis()
-    evaluate(student_model, test_data_loader, device, device_ids, distributed, no_dp_eval=no_dp_eval,
+    lr_factor = args.world_size if distributed and args.adjust_lr else 1
+    evaluate(student_model, test_data_loader, device, device_ids, distributed, dataset_dict,teacher_model, config, lr_factor, no_dp_eval=no_dp_eval,
              log_freq=log_freq, title='[Student: {}]'.format(student_model_config['name']))
 
 
