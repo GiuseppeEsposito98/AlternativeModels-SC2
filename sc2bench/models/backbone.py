@@ -8,6 +8,8 @@ from torchdistill.common.constant import def_logger
 from torchdistill.models.registry import register_model_class, register_model_func
 from torchvision import models
 from torchvision.ops import misc as misc_nn_ops
+from torchdistill.common.constant import def_logger
+logger = def_logger.getChild(__name__)
 
 from torchdistill.common.main_util import load_ckpt
 from .layer import get_layer
@@ -265,7 +267,7 @@ class SplittableVGG(UpdatableBackbone):
         return seq_dict
     
 class SplittableMobileNetV3(UpdatableBackbone):
-    def __init__(self, bottleneck_layer, efficientnet_model, inplanes=None, skips_avgpool=True, skips_fc=True,
+    def __init__(self, bottleneck_layer, mobilenet_small_model, inplanes=None, skips_avgpool=True, skips_fc=True,
                  pre_transform_params=None, analysis_config=None, start_coverage=0, end_coverage=3):
         if analysis_config is None:
             analysis_config = dict()
@@ -274,7 +276,8 @@ class SplittableMobileNetV3(UpdatableBackbone):
         self.pre_transform = build_transform(pre_transform_params)
         self.analyzes_after_compress = analysis_config.get('analyzes_after_compress', False)
         self.end_coverage = end_coverage
-        self.seq_dict=self.setup_backbone(efficientnet_model.features)
+        logger.info(mobilenet_small_model)
+        self.seq_dict=self.setup_backbone(mobilenet_small_model.features)
         modules = {
             'layer0': self.seq_dict['layer0'],
             'bottleneck_layer': bottleneck_layer
@@ -289,8 +292,8 @@ class SplittableMobileNetV3(UpdatableBackbone):
         )
 
         self.avgpool = None if skips_avgpool \
-            else efficientnet_model.avgpool if hasattr(efficientnet_model, 'avgpool') else efficientnet_model.avgpool
-        self.fc = None if skips_fc else efficientnet_model.classifier
+            else mobilenet_small_model.avgpool if hasattr(mobilenet_small_model, 'avgpool') else mobilenet_small_model.avgpool
+        self.fc = None if skips_fc else mobilenet_small_model.classifier
         # self.inplanes = efficientnet_model.inplanes if inplanes is None else inplanes
         self.inplanes = None
 
