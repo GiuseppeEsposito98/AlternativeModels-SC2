@@ -62,7 +62,7 @@ models:
         start_coverage: 1
         end_coverage: 3
         params:
-          bottleneck_channel: &bch 6
+          bottleneck_channel: &bch 12
           bottleneck_idx: 6 #########
           output_channel: 24
           compressor_transform_params:
