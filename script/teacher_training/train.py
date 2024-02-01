@@ -1,5 +1,5 @@
 from torchvision.models.mobilenetv3 import MobileNetV3, _mobilenet_v3_conf
-from torchvision.datasets import CIFAR100
+from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
 from sklearn.model_selection import ParameterGrid
 from cosine_scheduler import CosineWarmupLR
@@ -127,7 +127,7 @@ def train(model, criterion, optimizer, dataloader:DataLoader, epoch:int, writer=
 
     return loss_avg, prec1_avg, prec5_avg
 
-def validate(model, val_loader, criterion, epoch, writer=None):
+def validate(model, val_loader, criterion):
     # switch to evaluate mode
     model.eval().to(device='cuda')
     prec1s=list()
@@ -152,9 +152,9 @@ def validate(model, val_loader, criterion, epoch, writer=None):
     prec5_avg = sum(prec5s)/len(prec5s)
     loss_avg = sum(losses)/len(losses)
 
-    writer.add_scalar('val_loss', loss_avg, epoch+1)
-    writer.add_scalar('val_prec1', prec1_avg, epoch+1)
-    writer.add_scalar('val_prec5', prec5_avg, epoch+1)
+    # writer.add_scalar('val_loss', loss_avg, epoch+1)
+    # writer.add_scalar('val_prec1', prec1_avg, epoch+1)
+    # writer.add_scalar('val_prec5', prec5_avg, epoch+1)
 
     return loss_avg, prec1_avg, prec5_avg
 
@@ -177,7 +177,7 @@ def main():
 
     #grid search 
     PARAMS = {
-    'start_lr': [0.35],
+    'start_lr': [0.12],
     'scheduler_step_size': [3],
     'gamma': [0.99],
     'weight_decay':  [6e-5]
@@ -199,14 +199,14 @@ def main():
 
         # model instantiation
         inverted_residual_setting, last_channel = _mobilenet_v3_conf(arch='mobilenet_v3_small')
-        model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel, num_classes=100)
+        model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel, num_classes=10)
         # dataloaders
         transformer = get_transformer('train')
-        train_set = CIFAR100('~/dataset/cifar100', transform=transformer, download=True)
+        train_set = CIFAR10('~/dataset/cifar100', transform=transformer, download=True)
         train_loader = DataLoader(dataset=train_set, batch_size = 128, shuffle=True, pin_memory=True)
 
         transformer = get_transformer('test')
-        val_set = CIFAR100('~/dataset/cifar100', transform=transformer, download=True, train=False)
+        val_set = CIFAR10('~/dataset/cifar100', transform=transformer, download=True, train=False)
         val_loader = DataLoader(dataset=val_set, batch_size = 128, shuffle=True, pin_memory=True)
 
         # loss setup
@@ -226,41 +226,48 @@ def main():
 
     
         # train
-        writer = SummaryWriter("/home/jd.guerrero/Documents/g.esposito/AlternativeModels-SC2/script/teacher_training/400epochs/{}".format(formatted_config))
+        # writer = SummaryWriter("/home/g.esposito/AlternativeModels-SC2/script/teacher_training/400epochs/{}".format(formatted_config))
         best_prec1 = 0.0
         train_loss_avg=0.0
         val_loss_avg=0.0
         val_prec1_avg=0.0
-        writer.add_hparams(config,
-                               {
-                                   'train_loss': train_loss_avg,
-                                   'val_loss': val_loss_avg,
-                                   'val_prec1_avg': val_prec1_avg
-                               })
+        # writer.add_hparams(config,
+        #                        {
+        #                            'train_loss': train_loss_avg,
+        #                            'val_loss': val_loss_avg,
+        #                            'val_prec1_avg': val_prec1_avg
+        #                        })
 
-        for epoch in tqdm(range(400)):
-            print(f'epoch: {epoch}')
-            train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
+        # for epoch in tqdm(range(400)):
+        #     print(f'epoch: {epoch}')
+        #     train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
 
-            val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
-            print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
-            scheduler.step()
+        #     val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
+        #     print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
+        #     scheduler.step()
 
-            is_best = val_prec1_avg > best_prec1
-            best_prec1 = max(val_prec1_avg, best_prec1)
+        #     is_best = val_prec1_avg > best_prec1
+        #     best_prec1 = max(val_prec1_avg, best_prec1)
 
-            save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer': optimizer.state_dict(),
-                }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{:3f}_{}epoch.pth'.format(best_prec1, epoch))
-        # state_dict = torch.load('resource/ckpt/cifar100/teacher/cifar100-mobilenet_v3_small.pth')['state_dict']
-        # model.load_state_dict(state_dict)
-        # val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, writer=writer)
-        # print(val_loss_avg)
-        # print(val_prec1_avg)
-        # print(val_prec5_avg)
+        #     save_checkpoint({
+        #             'epoch': epoch + 1,
+        #             'state_dict': model.state_dict(),
+        #             'best_prec1': best_prec1,
+        #             'optimizer': optimizer.state_dict(),
+        #         }, is_best=is_best, checkpoint='/home/g.esposito/AlternativeModels-SC2/script/teacher_training/ckpt/mobilenet_cifar_SGD/{}'.format(other_formatting), filename='{:3f}_{}epoch.pth'.format(best_prec1, epoch))
+        print(model)
+        state_dict = torch.load('resource/ckpt/cifar10/teacher/cifar100-mobilenet_v3_small.ckpt')['state_dict']
+        new_state_dict = dict()
+        for key in state_dict.keys():
+            fields = key.split('model.')
+            new_k = fields[1]
+            new_state_dict[new_k] = state_dict[key]
+        # print(state_dict)
+        model.load_state_dict(new_state_dict)
+        val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion)
+        print(val_loss_avg)
+        print(val_prec1_avg)
+        print(val_prec5_avg)
         
 
 
