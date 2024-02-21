@@ -61,6 +61,7 @@ models:
         name: 'mobilenet_v3_small_compression_cov2_custom_relu'
         start_coverage: 1
         end_coverage: 3
+        init_bounding_act: 15
         params:
           bottleneck_channel: &bch 6
           bottleneck_idx: 6 #########
@@ -73,6 +74,7 @@ models:
             - type: 'SimpleDequantizer'
               params:
                 num_bits: 8
+          bounding_enc_act: [11,15]
       mobilenet_name: 'mobilenet_v3_small'
       pre_transform_params:
       skips_avgpool: False

@@ -140,7 +140,6 @@ class Basessd(SSD, UpdatableDetectionModel):
         SSD.__init__(self, ssd_model.backbone, ssd_model.anchor_generator, (300,300), num_classes=91, head=ssd_model.head)
 
     def update(self, **kwargs):
-        logger.info(self.backbone.features.body)
         if not check_if_updatable(self.backbone.features.body):
             raise KeyError(f'`backbone` {type(self)} is not updatable')
         self.backbone.features.body.update()
@@ -204,12 +203,11 @@ def create_ssd(backbone, extra_blocks=None, return_layer_dict=None, in_channels_
     if in_channels_list is None:
         in_channels_list = [in_channels_stage2 * 2 ** (i - 1) for i in returned_layers]
     
-    ref_model = ssd300_vgg16(pretrained=True)
+    ref_model = ssd300_vgg16(pretrained=True, num_classes=91)
     backbone_ = \
         UpdatableBackbone(backbone.features, return_layer_dict, in_channels_list, out_channels, extra_blocks=extra_blocks,
                                  analyzable_layer_key=analyzable_layer_key, **analysis_config)
     ref_model.backbone.features = backbone_
-    
     # return SSD(backbone_, anchor_generator=anchor_generator, size=(300,300), num_classes=num_classes, **kwargs)
     return ref_model
 

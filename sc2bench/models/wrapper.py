@@ -295,7 +295,7 @@ class MobileNetV3Classifier(torch.nn.Module):
         new_features = ExtractorWrapper(classification_model)
         classification_model.features=new_features
         self.classification_model = classification_model
-        print(self.classification_model)
+        # print(self.classification_model)
     def forward(self, x):
         """
         Args:

@@ -1,5 +1,6 @@
 from torchvision.models.mobilenetv3 import MobileNetV3, _mobilenet_v3_conf
 from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
 from sklearn.model_selection import ParameterGrid
 from cosine_scheduler import CosineWarmupLR
@@ -8,7 +9,8 @@ from eval import accuracy
 from tqdm import tqdm
 from copy import deepcopy
 import numpy as np
-from torch.utils.tensorboard import SummaryWriter
+import torchmetrics
+# from torch.utils.tensorboard import SummaryWriter
 
 import torchvision.transforms as trsf
 
@@ -58,11 +60,11 @@ def get_transformer(mode: str, input_size = (32,32)):
         ])
     elif mode == 'test':
         transform = trsf.Compose([
-            # you can add other transformations in this list
-            # trsf.Resize(input_size),
-            trsf.ToTensor(),
-            trsf.Normalize(mean= (0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761))
-        ])
+            trsf.Resize((70, 70)),        
+            trsf.CenterCrop((64, 64)),            
+            trsf.ToTensor(),                
+            trsf.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        
     return transform
 
 def adjust_learning_rate(optimizer, epoch):
@@ -128,30 +130,39 @@ def train(model, criterion, optimizer, dataloader:DataLoader, epoch:int, writer=
     return loss_avg, prec1_avg, prec5_avg
 
 def validate(model, val_loader, criterion):
+def validate(model, val_loader, criterion):
     # switch to evaluate mode
-    model.eval().to(device='cuda')
+    model.eval()#.to(device='cuda')
     prec1s=list()
     prec5s=list()
     losses=list()
+    acc = torchmetrics.Accuracy(task='multiclass', num_classes=10)
     for i, (input, target) in enumerate(val_loader):
-        target = target.cuda(non_blocking=True)
-        input = input.to(device='cuda')
+        target = target.cpu()
+        input = input.to(device='cpu')
 
         with torch.no_grad():
             # compute output
             output = model(input)
             loss = criterion(output, target)
-
-        prec1, prec5 = accuracy(output, target, topk=(1, 5))
+            # output = torch.argmax(output, dim=1)
+            
+        print(acc(output, target))
+        # prec1, prec5 = accuracy(output, target, topk=(1, 5))
+        # print(output)
+        # print(target)
     
-        prec1s.append(prec1)
-        prec5s.append(prec5)
-        losses.append(loss)
+        # prec1s.append(prec1)
+        # prec5s.append(prec5)
+        # losses.append(loss)
 
     prec1_avg = sum(prec1s)/len(prec1s)
     prec5_avg = sum(prec5s)/len(prec5s)
     loss_avg = sum(losses)/len(losses)
 
+    # writer.add_scalar('val_loss', loss_avg, epoch+1)
+    # writer.add_scalar('val_prec1', prec1_avg, epoch+1)
+    # writer.add_scalar('val_prec5', prec5_avg, epoch+1)
     # writer.add_scalar('val_loss', loss_avg, epoch+1)
     # writer.add_scalar('val_prec1', prec1_avg, epoch+1)
     # writer.add_scalar('val_prec5', prec5_avg, epoch+1)
@@ -196,7 +207,7 @@ def main():
         formatted_config= f"step_{config['scheduler_step_size']}/gamma_{config['gamma']}/start_lr_{config['start_lr']}/weight_decay_{config['weight_decay']}/"
         print(formatted_config)
         other_formatting = f"step_{config['scheduler_step_size']}_gamma_{config['gamma']}_start_lr_{config['start_lr']}_weight_decay_{config['weight_decay']}"
-
+        device = 'cpu'
         # model instantiation
         inverted_residual_setting, last_channel = _mobilenet_v3_conf(arch='mobilenet_v3_small')
         model = MobileNetV3(inverted_residual_setting=inverted_residual_setting, last_channel=last_channel, num_classes=10)
@@ -241,11 +252,19 @@ def main():
         # for epoch in tqdm(range(400)):
         #     print(f'epoch: {epoch}')
         #     train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
+        # for epoch in tqdm(range(400)):
+        #     print(f'epoch: {epoch}')
+        #     train_loss_avg, train_prec1_avg, train_prec5_avg = train(model, criterion=criterion, optimizer = optimizer, dataloader=train_loader, epoch=epoch, writer=writer)
 
         #     val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
         #     print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
         #     scheduler.step()
+        #     val_loss_avg, val_prec1_avg, val_prec5_avg = validate(model, val_loader=val_loader, criterion=criterion, epoch=epoch, writer=writer)
+        #     print(f'val_loss_avg: {val_loss_avg}, val_prec1_avg: {val_prec1_avg}, val_prec5_avg: {val_prec5_avg}')
+        #     scheduler.step()
 
+        #     is_best = val_prec1_avg > best_prec1
+        #     best_prec1 = max(val_prec1_avg, best_prec1)
         #     is_best = val_prec1_avg > best_prec1
         #     best_prec1 = max(val_prec1_avg, best_prec1)
 
