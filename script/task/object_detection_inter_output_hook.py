@@ -116,9 +116,11 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, dataset
     analyzable = check_if_analyzable(model_wo_ddp)
     metric_logger = MetricLogger(delimiter='  ')
     logger.info(model)
-    hook2 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[2])
-    hook3 = IntermediateOutputHook(model.module.features.bottleneck_layer.encoder[5])
-    hook1 = IntermediateOutputHook(model.module.features.layer0[2])
+    hook2 = IntermediateOutputHook(model.module.backbone.features.body.bottleneck_layer.encoder[1])
+    hook3 = IntermediateOutputHook(model.module.backbone.features.body.bottleneck_layer.encoder[4])
+    hook4 = IntermediateOutputHook(model.module.backbone.features.body.bottleneck_layer.encoder[6])
+    hook5 = IntermediateOutputHook(model.module.backbone.features.body.bottleneck_layer.encoder[10])
+    hook1 = IntermediateOutputHook(model.module.backbone.features.body.layer1[1])
     im = 0
     for image, target in metric_logger.log_every(data_loader, log_freq, header):
         if isinstance(image, torch.Tensor):
@@ -128,39 +130,45 @@ def evaluate(model_wo_ddp, data_loader, device, device_ids, distributed, dataset
             target = target.to(device, non_blocking=True)
 
         output = model(image)
-        acc1, acc5 = compute_accuracy(output, target, topk=(1, 5))
+        # acc1, acc5 = compute_accuracy(output, target, topk=(1, 5))
         # FIXME need to take into account that the datasets
         # could have been padded in distributed setup
         batch_size = len(image)
-        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
-        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+        # metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
+        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
         im += 1
         # if im == 8000:
         #     break
         # if im == 2:
         #     break
 
-    # intermediate_output1 = torch.Tensor(hook1.outputs)
-    # intermediate_output2 = torch.Tensor(hook2.outputs)
-    # intermediate_output3 = torch.Tensor(hook3.outputs)
+    intermediate_output1 = torch.Tensor(hook1.outputs)
+    intermediate_output2 = torch.Tensor(hook2.outputs)
+    intermediate_output3 = torch.Tensor(hook3.outputs)
+    intermediate_output4 = torch.Tensor(hook4.outputs)
+    intermediate_output5 = torch.Tensor(hook5.outputs)
     # logger.info(type(intermediate_output1))
     # logger.info(type(intermediate_output2))
     logger.info("===========================")
-    # stacked_tensor1 = torch.flatten(intermediate_output1)
-    # stacked_tensor2 = torch.flatten(intermediate_output2)
-    # stacked_tensor3 = torch.flatten(intermediate_output3)
-    logger.info(max(hook1.maxs))
-    logger.info(max(hook2.maxs))
-    logger.info(max(hook3.maxs))
+    stacked_tensor1 = torch.flatten(intermediate_output1)
+    stacked_tensor2 = torch.flatten(intermediate_output2)
+    stacked_tensor3 = torch.flatten(intermediate_output3)
+    stacked_tensor4 = torch.flatten(intermediate_output4)
+    stacked_tensor5 = torch.flatten(intermediate_output5)
+    logger.info(torch.max(stacked_tensor1))
+    logger.info(torch.max(stacked_tensor2))
+    logger.info(torch.max(stacked_tensor3))
+    logger.info(torch.max(stacked_tensor4))
+    logger.info(torch.max(stacked_tensor5))
     logger.info("===========================")
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    top1_accuracy = metric_logger.acc1.global_avg
-    top5_accuracy = metric_logger.acc5.global_avg
-    logger.info(' * Acc@1 {:.4f}\tAcc@5 {:.4f}\n'.format(top1_accuracy, top5_accuracy))
+    # top1_accuracy = metric_logger.acc1.global_avg
+    # top5_accuracy = metric_logger.acc5.global_avg
+    # logger.info(' * Acc@1 {:.4f}\tAcc@5 {:.4f}\n'.format(top1_accuracy, top5_accuracy))
     if analyzable and model_wo_ddp.activated_analysis:
         model_wo_ddp.summarize()
-    return metric_logger.acc1.global_avg
+    # return metric_logger.acc1.global_avg
 
 
 def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, device_ids, distributed, config, args, writer):
@@ -219,12 +227,12 @@ def train(teacher_model, student_model, dataset_dict, ckpt_file_path, device, de
 
 class IntermediateOutputHook:
     def __init__(self, module):
-        self.maxs = []
+        self.outputs = []
         self.hook = module.register_forward_hook(self.hook_fn)
 
     def hook_fn(self, module, input, output):
         max_ = torch.max(output)
-        self.maxs.append(max_)
+        self.outputs.append(max_)
 
     def remove(self):
         self.hook.remove()
