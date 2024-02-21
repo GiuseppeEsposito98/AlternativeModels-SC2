@@ -74,6 +74,8 @@ class RangerSimpleBottleneck(nn.Module):
         if self.compressor is not None:
             x = self.compressor(x)
         return {'z': x}
+            x = self.compressor(x)
+        return {'z': x}
 
     def decode(self, z):
         # logger.info(z.shape)

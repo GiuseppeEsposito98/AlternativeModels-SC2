@@ -27,6 +27,7 @@ datasets:
       val:
         dataset_id: &cifar_val !join [*dataset_name, '/val']
         params:
+          train: False
           root: *root_dir
           transform_params:
             - *totensor
