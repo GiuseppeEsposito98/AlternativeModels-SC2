@@ -7,8 +7,10 @@ from compressai.models.utils import update_registered_buffers
 from torch import nn
 import torch.nn.functional as F
 from torchvision.ops import StochasticDepth
+import matplotlib.pyplot as plt
 from torchdistill.common.constant import def_logger
 from torchdistill.datasets.util import build_transform
+import csv
 
 logger = def_logger.getChild(__name__)
 LAYER_CLASS_DICT = dict()
@@ -38,24 +40,43 @@ def register_layer_func(func):
     LAYER_FUNC_DICT[func.__name__] = func
     return func
 
-class SimpleBottleneck(nn.Module):
+class RangerSimpleBottleneck(nn.Module):
     """
     Simple encoder-decoder layer to treat encoder's output as bottleneck
     """
-    def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+    def __init__(self, encoder, decoder, compressor=None, decompressor=None, bounding_enc_act=[]):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.compressor = compressor
         self.decompressor = decompressor
+        self.bounding_enc_act = bounding_enc_act
 
     def encode(self, x):
-        z = self.encoder(x)
+        # bounding_enc_act=[20,10]
+        act_counter = 0
+        current_max = self.bounding_enc_act[act_counter]
+        for el in self.encoder._modules.values():
+            x = el(x)
+            if not isinstance(el, torch.nn.Conv2d) and not isinstance(el, torch.nn.Hardtanh) and act_counter !=0:
+                x = torch.maximum(x, torch.tensor(0))
+                x = torch.minimum(x, torch.tensor(current_max))
+            elif isinstance(el, torch.nn.ReLU):
+                x = torch.maximum(x, torch.tensor(0))
+                x = torch.minimum(x, torch.tensor(current_max))
+                act_counter+=1
+                current_max = self.bounding_enc_act[act_counter]
+        # for name, child in self.encoder._modules.items():
+        #     if name != '2' and name != '4', :
+        #         x = child(x)
+        #     else:
+        # z = self.encoder(x)
         if self.compressor is not None:
-            z = self.compressor(z)
-        return {'z': z}
+            x = self.compressor(x)
+        return {'z': x}
 
     def decode(self, z):
+        # logger.info(z.shape)
         if self.decompressor is not None:
             z = self.decompressor(z)
         return self.decoder(z)
@@ -72,117 +93,38 @@ class SimpleBottleneck(nn.Module):
         logger.info('This module has no updatable parameters for entropy coding')
 
 
-# class SimpleBottleneck(nn.Module):
-#     """
-#     Simple encoder-decoder layer to treat encoder's output as bottleneck
-#     """
-#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
-#         super().__init__()
-#         self.encoder = encoder
-#         self.decoder = decoder
-#         self.compressor = compressor
-#         self.decompressor = decompressor
-#         self.max1 = list()
-#         self.max3 = list()
-#         self.max6 = list()
-#         self.max8 = list()
-#         self.max12 = list()
-#         self.max14 = list()
-#         self.max16 = list()
-#         self.max19 = list()
+class SimpleBottleneck(nn.Module):
+    """
+    Simple encoder-decoder layer to treat encoder's output as bottleneck
+    """
+    def __init__(self, encoder, decoder, compressor=None, decompressor=None):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.compressor = compressor
+        self.decompressor = decompressor
 
-#     def encode(self, x):
-#         for idx in range(1,len(list(self.encoder.children()))+1):
-#             if idx in [1,3,6, 8, 12]:
-#                 x = list(self.encoder.children())[idx-1](x)
-#                 # logger.info(torch.max(x).item())
-#                 exec(f'self.max{idx}.append(torch.max(x).item())')
-#             else: 
-#                 x = list(self.encoder.children())[idx-1](x)
+    def encode(self, x):
+        x = self.encoder(x)
+        if self.compressor is not None:
+            x = self.compressor(x)
+        return {'z': x}
 
-#         # z = self.encoder(x)
-#         if self.compressor is not None:
-#             x = self.compressor(x)
-#         return {'z': x}
+    def decode(self, z):
+        if self.decompressor is not None:
+            z = self.decompressor(z)
+        return self.decoder(z)
 
-#     def decode(self, z):
-#         if self.decompressor is not None:
-#             z = self.decompressor(z)
+    def forward(self, x):
+        if not self.training:
+            encoded_obj = self.encode(x)
+            decoded_obj = self.decode(**encoded_obj)
+            return decoded_obj
+        z = self.encoder(x)
+        return self.decoder(z)
 
-#         for idx in range(1,len(list(self.decoder.children()))+1):
-#             if idx in [1,3,6]:
-#                 z = list(self.decoder.children())[idx-1](z)
-#                 exec(f'self.max{idx+13}.append(torch.max(z).item())')
-#             else: 
-#                 z = list(self.decoder.children())[idx-1](z)
-#             # z = self.decoder(z)
-#         return z
-
-#     def forward(self, x):
-#         if not self.training:
-#             encoded_obj = self.encode(x)
-#             decoded_obj = self.decode(**encoded_obj)
-#             return decoded_obj
-#         z = self.encoder(x)
-#         return self.decoder(z)
-
-#     def update(self):
-#         logger.info('This module has no updatable parameters for entropy coding')
-
-# class SimpleBottleneck(nn.Module):
-#     """
-#     Simple encoder-decoder layer to treat encoder's output as bottleneck
-#     """
-#     def __init__(self, encoder, decoder, compressor=None, decompressor=None):
-#         super().__init__()
-#         self.encoder = encoder
-#         self.decoder = decoder
-#         self.compressor = compressor
-#         self.decompressor = decompressor
-#         self.max2 = list()
-#         self.max5 = list()
-#         self.max8 = list()
-#         self.max11 = list()
-#         self.max14 = list()
-
-#     def encode(self, x):
-#         for idx in range(1,len(list(self.encoder.children()))+1):
-#             if idx in [2,5]:
-#                 x = list(self.encoder.children())[idx-1](x)
-#                 # logger.info(torch.max(x).item())
-#                 exec(f'self.max{idx}.append(torch.max(x).item())')
-#             else: 
-#                 x = list(self.encoder.children())[idx-1](x)
-
-#         # z = self.encoder(x)
-#         if self.compressor is not None:
-#             x = self.compressor(x)
-#         return {'z': x}
-
-#     def decode(self, z):
-#         if self.decompressor is not None:
-#             z = self.decompressor(z)
-
-#         for idx in range(1,len(list(self.decoder.children()))+1):
-#             if idx in [2,5,8]:
-#                 z = list(self.decoder.children())[idx-1](z)
-#                 exec(f'self.max{idx+6}.append(torch.max(z).item())')
-#             else: 
-#                 z = list(self.decoder.children())[idx-1](z)
-#             # z = self.decoder(z)
-#         return z
-
-#     def forward(self, x):
-#         if not self.training:
-#             encoded_obj = self.encode(x)
-#             decoded_obj = self.decode(**encoded_obj)
-#             return decoded_obj
-#         z = self.encoder(x)
-#         return self.decoder(z)
-
-#     def update(self):
-#         logger.info('This module has no updatable parameters for entropy coding')
-
+    def update(self):
+        logger.info('This module has no updatable parameters for entropy coding')
 
 @register_layer_func
 def larger_resnet_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
@@ -230,10 +172,6 @@ def compression_vgg_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_
     """
     modules = [
         
-        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        
         nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.ReLU(inplace=True),
         
@@ -267,51 +205,7 @@ def compression_vgg_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
-@register_layer_func
-def layer_swap_vgg(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
-                             compressor_transform_params=None, decompressor_transform_params=None):
-    """
-    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
-    """
-    modules = [
-        
-        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        
-        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.BatchNorm2d(128),
-        nn.ReLU(inplace=True),
 
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True)
-        
-    ]
-    encoder = nn.Sequential(*modules[:bottleneck_idx])
-    decoder = nn.Sequential(*modules[bottleneck_idx:])
-    compressor_transform = build_transform(compressor_transform_params)
-    decompressor_transform = build_transform(decompressor_transform_params)
-    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
-## try stride = 2
 @register_layer_func
 def compression_vgg_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
                              compressor_transform_params=None, decompressor_transform_params=None):
@@ -320,35 +214,28 @@ def compression_vgg_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output
     """
     modules = [
         
-        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=5,inplace=True),
-        
         
         nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=5, inplace=True),
+        nn.Hardtanh(min_val=0, max_val=170), # to be fixed
         
         
         nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
         nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=2, inplace=True),
+        nn.Hardtanh(min_val=0, max_val=918),
         
         nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=2, inplace=True),
+        nn.Hardtanh(min_val=0, max_val=5126),
 
         nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
         nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.BatchNorm2d(bottleneck_channel),
-        nn.Hardtanh(min_val=0, max_val=15, inplace=True),
+        nn.Hardtanh(min_val=0, max_val=29),
 
         nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=15, inplace=True),
+        nn.ReLU(inplace=True),
 
         nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=20, inplace=True),
-
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=439, inplace=True)
+        nn.ReLU(inplace=True),
         
     ]
     encoder = nn.Sequential(*modules[:bottleneck_idx])
@@ -357,99 +244,6 @@ def compression_vgg_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
-@register_layer_func
-def compression_vgg_wo_maxpool(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
-                             compressor_transform_params=None, decompressor_transform_params=None):
-    """
-    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
-    """
-    modules = [
-        
-        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        
-        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        # learning pooling
-        # nn.Conv2d(64, 64, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
-        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-        
-        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        # learning pooling
-        # nn.Conv2d(128, 128, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
-        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-        nn.BatchNorm2d(bottleneck_channel),
-        nn.ReLU(inplace=True),
-
-        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True),
-
-        #learning pooling
-        # nn.Conv2d(256, 256, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=1),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-        nn.ReLU(inplace=True)
-        
-    ]
-    encoder = nn.Sequential(*modules[:bottleneck_idx])
-    decoder = nn.Sequential(*modules[bottleneck_idx:])
-    compressor_transform = build_transform(compressor_transform_params)
-    decompressor_transform = build_transform(decompressor_transform_params)
-    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
-
-@register_layer_func
-def fusion_vgg_compression(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
-                             compressor_transform_params=None, decompressor_transform_params=None):
-    """
-    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
-    """
-    modules = [
-        
-        nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=1025,inplace=True),
-        
-        
-        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=4627, inplace=True),
-        
-        # learning pooling
-        nn.Conv2d(64, 64, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
-        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=8296, inplace=True),
-        
-        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.BatchNorm2d(128),
-        nn.Hardtanh(min_val=0, max_val=9345, inplace=True),
-
-        # learning pooling
-        nn.Conv2d(128, 128, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=0),
-        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=7014, inplace=True),
-
-        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=5572, inplace=True),
-
-        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=4494, inplace=True),
-
-        #learning pooling
-        nn.Conv2d(256, 256, kernel_size=(2, 2), stride=(2, 2), dilation=1, padding=1),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.Hardtanh(min_val=0, max_val=3149, inplace=True)
-        
-    ]
-    encoder = nn.Sequential(*modules[:bottleneck_idx])
-    decoder = nn.Sequential(*modules[bottleneck_idx:])
-    compressor_transform = build_transform(compressor_transform_params)
-    decompressor_transform = build_transform(decompressor_transform_params)
-    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
 @register_layer_func
 def mobilenet_v3_small_compression(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
@@ -575,32 +369,73 @@ def mobilenet_v3_small_compression_cov2(bottleneck_channel=12, bottleneck_idx=12
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
 
 @register_layer_func
-def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
-                             compressor_transform_params=None, decompressor_transform_params=None):
+def mobilenet_v3_small_compression_cov2_ranger( bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None, bounding_enc_act=[]):
+    
     modules= [
     nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
     nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 20, min_val=0), # 2
+    nn.ReLU(inplace=True),
 
     # Seconda convoluzione
     nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 10, min_val=0), # 5 
+    nn.ReLU(inplace=True),
 
     # Terza convoluzione
     nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
     nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 20, min_val=0), # 8
+    nn.ReLU(inplace=True),
 
     # Quarta convoluzione
     nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 18, min_val=0), # 11
+    nn.ReLU(inplace=True),
 
     # Quinta convoluzione
     nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
     nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
-    nn.Hardtanh(inplace=True, max_val = 17, min_val=0) # 14
+    nn.ReLU(inplace=True)
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return RangerSimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform, bounding_enc_act)
+
+
+@register_layer_func
+def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None, bounding_enc_act=[]):
+    assert (bottleneck_idx % 3) != len(bounding_enc_act), f"Provided {len(bounding_enc_act)} thresholds but {bottleneck_idx % 3} are needed"
+         
+
+    modules= [
+    nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Hardtanh(0,bounding_enc_act[0],True),
+    # nn.Hardtanh(0,11,True), # 2
+
+    # Seconda convoluzione
+    nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.Hardtanh(0,bounding_enc_act[1],True),
+    # nn.Hardtanh(0,15,True), # 5 
+
+    # Terza convoluzione
+    nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(), # 8
+
+    # Quarta convoluzione
+    nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(), # 11
+
+    # Quinta convoluzione
+    nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU() # 14
     ]
 
     encoder = nn.Sequential(*modules[:bottleneck_idx])
@@ -608,6 +443,44 @@ def mobilenet_v3_small_compression_cov2_custom_relu(bottleneck_channel=12, bottl
     compressor_transform = build_transform(compressor_transform_params)
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+
+@register_layer_func
+def mobilenet_v3_small_compression_cov2_swap_relu6(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None):
+    modules= [
+    nn.Conv2d(16, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.ReLU6(),
+    nn.BatchNorm2d(32, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),# 2
+
+    # Seconda convoluzione
+    nn.Conv2d(32, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.ReLU6(),
+    nn.BatchNorm2d(bottleneck_channel, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),# 5 
+    nn.ReLU6(),
+
+    # Terza convoluzione
+    nn.Conv2d(bottleneck_channel, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(128, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(), # 8
+
+    # Quarta convoluzione
+    nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(256, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU(), # 11
+
+    # Quinta convoluzione
+    nn.Conv2d(256, 24, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False),
+    nn.BatchNorm2d(24, eps=0.001, momentum=0.01, affine=True, track_running_stats=True),
+    nn.ReLU() # 14
+    ]
+
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
 
 
 @register_layer_class

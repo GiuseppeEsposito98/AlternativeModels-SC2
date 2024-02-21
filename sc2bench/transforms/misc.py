@@ -230,3 +230,29 @@ class SimpleDequantizer(nn.Module):
         :rtype: torch.Tensor
         """
         return z.float() if self.num_bits == 16 else tensor_util.dequantize_tensor(z)
+    
+@register_misc_transform_module
+class SimpleQuantizerDistrCut(nn.Module):
+    """
+    A module to quantize tensor with its half() function if num_bits=16 (FP16) or
+    Jacob et al.'s method if num_bits=8 (INT8 + one FP32 scale parameter).
+
+    Benoit Jacob, Skirmantas Kligys, Bo Chen, Menglong Zhu, Matthew Tang, Andrew Howard, Hartwig Adam, Dmitry Kalenichenko: `"Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference" <https://openaccess.thecvf.com/content_cvpr_2018/html/Jacob_Quantization_and_Training_CVPR_2018_paper.html>`_ @ CVPR 2018 (2018)
+
+    :param num_bits: number of bits for quantization
+    :type num_bits: int
+    """
+    def __init__(self, num_bits):
+        super().__init__()
+        self.num_bits = num_bits
+
+    def forward(self, z):
+        """
+        Quantizes tensor.
+
+        :param z: tensor
+        :type z: torch.Tensor
+        :return: quantized tensor
+        :rtype: torch.Tensor or torchdistill.common.tensor_util.QuantizedTensor
+        """
+        return z.half() if self.num_bits == 16 else tensor_util.quantize_tensor_distr_cut(z, self.num_bits)

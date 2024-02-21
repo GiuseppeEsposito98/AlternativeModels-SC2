@@ -5,7 +5,7 @@ from torch import nn, Tensor
 from torchdistill.common.constant import def_logger
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool, ExtraFPNBlock
 
-from ..backbone import FeatureExtractionBackbone
+from ..backbone import FeatureExtractionBackbone, FeatureExtractionBackboneVGG
 from ...analysis import AnalyzableModule
 
 logger = def_logger.getChild(__name__)
