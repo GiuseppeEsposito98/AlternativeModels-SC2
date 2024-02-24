@@ -66,14 +66,8 @@ class RangerSimpleBottleneck(nn.Module):
                 x = torch.minimum(x, torch.tensor(current_max))
                 act_counter+=1
                 current_max = self.bounding_enc_act[act_counter]
-        # for name, child in self.encoder._modules.items():
-        #     if name != '2' and name != '4', :
-        #         x = child(x)
-        #     else:
-        # z = self.encoder(x)
+
         if self.compressor is not None:
-            x = self.compressor(x)
-        return {'z': x}
             x = self.compressor(x)
         return {'z': x}
 
@@ -195,10 +189,6 @@ def compression_vgg_bottleneck(bottleneck_channel=12, bottleneck_idx=12, output_
 
         nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         nn.ReLU(inplace=True),
-
-        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=True),
-        nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        nn.ReLU(inplace=True)
         
     ]
     encoder = nn.Sequential(*modules[:bottleneck_idx])
@@ -245,6 +235,43 @@ def compression_vgg_custom_relu(bottleneck_channel=12, bottleneck_idx=12, output
     compressor_transform = build_transform(compressor_transform_params)
     decompressor_transform = build_transform(decompressor_transform_params)
     return SimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform)
+
+@register_layer_func
+def compression_vgg_bottleneck_ranger(bottleneck_channel=12, bottleneck_idx=12, output_channel=256,
+                             compressor_transform_params=None, decompressor_transform_params=None, bounding_enc_act=[]):
+    """
+    "Neural Compression and Filtering for Edge-assisted Real-time Object Detection in Challenged Networks"
+    """
+    modules = [
+        
+        nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+        nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+        nn.Conv2d(128, bottleneck_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.BatchNorm2d(bottleneck_channel),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(bottleneck_channel, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+
+        nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        nn.ReLU(inplace=True),
+        
+    ]
+    encoder = nn.Sequential(*modules[:bottleneck_idx])
+    decoder = nn.Sequential(*modules[bottleneck_idx:])
+    compressor_transform = build_transform(compressor_transform_params)
+    decompressor_transform = build_transform(decompressor_transform_params)
+    return RangerSimpleBottleneck(encoder, decoder, compressor_transform, decompressor_transform, bounding_enc_act)
 
 
 @register_layer_func

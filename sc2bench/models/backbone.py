@@ -58,7 +58,6 @@ class FeatureExtractionBackbone(UpdatableBackbone):
         # logger.info(f'[name for name, _ in model.named_children()]: {[name for name, _ in model.named_children()]}')
         if not set(return_layer_dict).issubset([name for name, _ in model.named_children()]):
             raise ValueError('return_layer_dict are not present in model')
-
         super().__init__(analyzer_configs)
         org_return_layer_dict = return_layer_dict
         return_layer_dict = {str(k): str(v) for k, v in return_layer_dict.items()}
@@ -79,7 +78,6 @@ class FeatureExtractionBackbone(UpdatableBackbone):
         self.analyzes_after_compress = analyzes_after_compress
 
     def forward(self, x):
-        # out = OrderedDict()
         for module_key, module in self.named_children():
             if module_key == self.analyzable_layer_key and self.bottleneck_updated and not self.training:
                 x = module.encode(x)
@@ -88,10 +86,6 @@ class FeatureExtractionBackbone(UpdatableBackbone):
                 x = module.decode(**x)
             else:
                 x = module(x)
-
-            # if module_key in self.return_layer_dict:
-            #     out_name = self.return_layer_dict[module_key]
-            #     out[out_name] = x
         return x
 
     def check_if_updatable(self, strict=True):
@@ -215,6 +209,102 @@ class SplittableVGG(UpdatableBackbone):
             x = self.pre_transform(x)
         # logger.info(f'x.shape: {x.shape}')
         x = self.seq_dict['layer1'](x)
+
+        if self.bottleneck_updated and not self.training:
+            x = self.bottleneck_layer.encode(x)
+            if self.analyzes_after_compress:
+                self.analyze(x)
+            x = self.bottleneck_layer.decode(**x)
+        else:
+            x = self.bottleneck_layer(x)
+
+        for i, conv_block in self.seq_dict.items():
+            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+                exec(f"x = conv_block(x)")
+
+        if self.avgpool is None:
+            return x
+
+        x = self.avgpool(x)
+        if self.fc is None:
+            return x
+
+        x = torch.flatten(x, 1)
+        return self.fc(x)
+
+    def update(self):
+        self.bottleneck_layer.update()
+        self.bottleneck_updated = True
+
+    def load_state_dict(self, state_dict, **kwargs):
+        entropy_bottleneck_state_dict = OrderedDict()
+        for key in list(state_dict.keys()):
+            if key.startswith('bottleneck_layer.'):
+                entropy_bottleneck_state_dict[key.replace('bottleneck_layer.', '', 1)] = state_dict.pop(key)
+
+        super().load_state_dict(state_dict, strict=False)
+        self.bottleneck_layer.load_state_dict(entropy_bottleneck_state_dict)
+
+    def get_aux_module(self, **kwargs):
+        return self.bottleneck_layer if isinstance(self.bottleneck_layer, CompressionModel) else None
+
+    def setup_backbone(self, backbone_with_seq):
+        # layers_list = list(self.backbone_with_seq)
+        seq_dict = dict()
+        block = list()
+        for name, layer in backbone_with_seq.named_children():
+            if isinstance(layer, torch.nn.Conv2d) or isinstance(layer, torch.nn.MaxPool2d):
+                block.append(layer)
+            elif isinstance(layer, torch.nn.ReLU):
+                block.append(layer)
+                seq_dict[f'layer{name}'] = torch.nn.Sequential(*block)
+                block=list()
+        return seq_dict
+
+class RangerSplittableVGG(UpdatableBackbone):
+    # Referred to the ResNet implementation at https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py
+    def __init__(self, bottleneck_layer, vgg_model, inplanes=None, skips_avgpool=True, skips_fc=True,
+                 pre_transform_params=None, analysis_config=None, bottleneck_coverage=None, init_bounding_act=1000):
+        if analysis_config is None:
+            analysis_config = dict()
+
+        super().__init__(analysis_config.get('analyzer_configs', list()))
+        self.pre_transform = build_transform(pre_transform_params)
+        self.analyzes_after_compress = analysis_config.get('analyzes_after_compress', False)
+        features = vgg_model.features
+        self.init_bounding_act = init_bounding_act
+
+        self.seq_dict = self.setup_backbone(features)
+        modules = {
+            'layer1': self.seq_dict['layer1'],
+            'bottleneck_layer': bottleneck_layer
+        }
+        self.bottleneck_coverage = bottleneck_coverage
+        for i, conv_block in self.seq_dict.items():
+            if int(i.split('layer')[1]) > self.bottleneck_coverage:
+    
+                exec(f'modules[i] = conv_block')
+    
+        self.features = torch.nn.ModuleDict(
+            modules
+        )
+        self.avgpool = None if skips_avgpool \
+            else vgg_model.global_pool if hasattr(vgg_model, 'global_pool') else vgg_model.avgpool
+        self.fc = None if skips_fc else vgg_model.fc
+        # self.inplanes = vgg_model.inplanes if inplanes is None else inplanes
+        self.inplanes = 2048
+
+    def forward(self, x):
+        # logger.info('************************************')
+        if self.pre_transform is not None:
+            x = self.pre_transform(x)
+        # logger.info(f'x.shape: {x.shape}')
+        # x = self.seq_dict['layer1'](x)
+        for child in self.features.layer0._modules.values():
+            x = child(x)
+            if isinstance(child, torch.nn.ReLU):
+                x = torch.maximum(x, torch.tensor(0))
+                x = torch.minimum(x, torch.tensor(self.init_bounding_act))
 
         if self.bottleneck_updated and not self.training:
             x = self.bottleneck_layer.encode(x)
@@ -787,6 +877,22 @@ def adaptive_splittable_vgg16(bottleneck_config, vgg_name='vgg16', inplanes=None
     bottleneck_coverage = bottleneck_config['coverage']
     return AdaptiveSplittableVGG(bottleneck_layer, vgg_model, inplanes, skips_avgpool, skips_fc,
                             pre_transform_params, analysis_config, bottleneck_coverage)
+
+@register_backbone_func
+def splittable_vgg16_ranger(bottleneck_config, vgg_name='vgg16', inplanes=None, skips_avgpool=True, skips_fc=True,
+                      pre_transform_params=None, analysis_config=None, org_model_ckpt_file_path_or_url=None,
+                      org_ckpt_strict=True, **vgg_kwargs):
+    bottleneck_layer = get_layer(bottleneck_config['name'], **bottleneck_config['params'])
+    init_bounding_act = bottleneck_config['init_bounding_act']
+    # logger.info(f'vgg_kwargs: {vgg_kwargs}')
+    ssd_model = models.detection.__dict__[vgg_name](**vgg_kwargs)
+    vgg_model = ssd_model.backbone
+    if org_model_ckpt_file_path_or_url is not None:
+        load_ckpt(org_model_ckpt_file_path_or_url, model=vgg_model, strict=org_ckpt_strict)
+    bottleneck_coverage = bottleneck_config['coverage']
+    # logger.info(f'vgg_model: {vgg_model}')
+    return RangerSplittableVGG(bottleneck_layer, vgg_model, inplanes, skips_avgpool, skips_fc,
+                            pre_transform_params, analysis_config, bottleneck_coverage, init_bounding_act)
 
 @register_backbone_func
 def splittable_MobileNet_v3_small(bottleneck_config, mobilenet_name='mobilenet_v3_small', inplanes=None, skips_avgpool=True, skips_fc=True,

@@ -5,7 +5,7 @@ from torch import nn, Tensor
 from torchdistill.common.constant import def_logger
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool, ExtraFPNBlock
 
-from ..backbone import FeatureExtractionBackbone, FeatureExtractionBackboneVGG
+from ..backbone import FeatureExtractionBackbone
 from ...analysis import AnalyzableModule
 
 logger = def_logger.getChild(__name__)
@@ -93,7 +93,7 @@ class UpdatableBackbone(UpdatableDetectionModel):
 
         if analyzer_configs is None:
             analyzer_configs = list()
-        self.body = FeatureExtractionBackboneVGG(backbone, return_layer_dict=return_layer_dict,
+        self.body = FeatureExtractionBackbone(model=backbone, return_layer_dict=return_layer_dict,
                                               analyzer_configs=analyzer_configs,
                                               analyzes_after_compress=analyzes_after_compress,
                                               analyzable_layer_key=analyzable_layer_key)
